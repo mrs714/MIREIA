@@ -6,12 +6,14 @@
 
 # 3. Allow specific files
 !README.md
-!main.py
+!test.ipynb
 
 # 4. Allow a specific folder
 # Note: You must allow the folder itself AND everything inside it
 !my_scripts/
 !my_scripts/**
+!MIREIA/
+!MIREIA/**
 
 # 5. Allow certain file types anywhere
 !*.png

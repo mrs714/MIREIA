@@ -1,0 +1,1 @@
+# Defines Start/End points for standard scenarios
