@@ -31,6 +31,10 @@ class RiskOracle:
             'lane_width_std': LANE_WIDTH_STD,  # Assumed standard lane width
             'road_repulsion': ROAD_REPULSION,  # Max risk at lane boundary
             'road_exp': ROAD_EXP,        # "Wall" steepness (higher = harder wall)
+
+            # Base Uncertainties (Added to Gaussian Spread)
+            'base_longitudinal_uncertainty': BASE_LONGITUDINAL_UNCERTAINTY,  # Meters
+            'base_lateral_uncertainty': BASE_LATERAL_UNCERTAINTY,  # Meters
         }
         
         if config:
@@ -96,13 +100,13 @@ class RiskOracle:
         y_local = dx * sin_yaw + dy * cos_yaw
 
         # Shape
-        sigma_x = (obj.length/2.0) + (self.params['reaction_time'] * v_rel_mag) + ((v_rel_mag**2) / (2 * mu * self.G))
+        sigma_x = (obj.length/2.0) + (self.params['reaction_time'] * v_rel_mag) + ((v_rel_mag**2) / (2 * mu * self.G)) + self.params['base_longitudinal_uncertainty'] # Base longitudinal uncertainty
         sigma_x = max(sigma_x, self.params['min_sigma_x'])
         
-        sigma_y = (obj.width/2.0) + 0.5
-        sigma_y = max(sigma_y, self.params['min_sigma_y'])
+        sigma_y = (obj.width/2.0) + self.params["base_lateral_uncertainty"] # Base lateral uncertainty
+        sigma_y = max(sigma_y, self.params['min_sigma_y']) # Ensure a minimum spread even for small obstacles
 
-        exponent = -0.5 * ((x_local/sigma_x)**2 + (y_local/sigma_y)**2)
+        exponent = -0.5 * ((x_local/sigma_x)**2 + (y_local/sigma_y)**2) # Gaussian formula; higher exponent = closer to center = more risk
         if exponent < -20: return 0.0
             
         return self.params['amplitude_gain'] * math.exp(exponent)
@@ -132,8 +136,15 @@ class RiskOracle:
         
         # 2. Dynamic Risk (Vectorized over X, Y)
         risk_dyn = np.zeros_like(X)
+        half = grid.size / 2.0
+        skip_margin = 70.0  # skip obstacles more than 70m from grid edge
         
         for obj in obstacles:
+            # Skip obstacles far from grid bounds
+            if (abs(obj.x - grid.center_x) > half + skip_margin or
+                abs(obj.y - grid.center_y) > half + skip_margin):
+                continue
+
             # Relative Pos
             dx = X - obj.x
             dy = Y - obj.y
@@ -161,38 +172,17 @@ class RiskOracle:
             exponent = -0.5 * ( (x_rot**2 / sigma_x**2) + (y_rot**2 / sigma_y**2) )
             risk_dyn += self.params['amplitude_gain'] * np.exp(exponent)
             
-        # 3. Static Risk (Using actual map waypoints)
+        # 3. Static Risk (Using KD-tree for fast nearest-waypoint lookup)
         risk_stat = np.zeros_like(X)
-        if road_data and road_data.waypoints:
-            half = grid.size / 2.0
-            margin = self.params['lane_width_std']
-            x_min, x_max = grid.center_x - half - margin, grid.center_x + half + margin
-            y_min, y_max = grid.center_y - half - margin, grid.center_y + half + margin
+        if road_data and road_data._kd_tree is not None:
+            # Query all grid points at once
+            grid_points = np.column_stack((X.ravel(), Y.ravel()))
+            dist, idx = road_data._kd_tree.query(grid_points)
+            nearest_half_w = road_data._wp_half_w[idx]
 
-            # Filter waypoints to those within/near grid bounds
-            nearby_wps = [wp for wp in road_data.waypoints
-                          if x_min <= wp.x <= x_max and y_min <= wp.y <= y_max]
-
-            if nearby_wps:
-                # Build arrays of waypoint positions and widths
-                wp_x = np.array([wp.x for wp in nearby_wps])
-                wp_y = np.array([wp.y for wp in nearby_wps])
-                wp_half_w = np.array([wp.width / 2.0 for wp in nearby_wps])
-
-                # For each grid point, find the distance to the nearest waypoint center
-                # and use that waypoint's half-width for normalization.
-                # Shape: (n_waypoints, rows, cols)
-                dx_wp = X[np.newaxis, :, :] - wp_x[:, np.newaxis, np.newaxis]
-                dy_wp = Y[np.newaxis, :, :] - wp_y[:, np.newaxis, np.newaxis]
-                dist_sq = dx_wp**2 + dy_wp**2  # (n_waypoints, rows, cols)
-
-                nearest_idx = np.argmin(dist_sq, axis=0)  # (rows, cols)
-                nearest_dist = np.sqrt(np.take_along_axis(dist_sq, nearest_idx[np.newaxis, :, :], axis=0)[0])
-                nearest_half_w = wp_half_w[nearest_idx]
-
-                norm_dist = nearest_dist / nearest_half_w
-                norm_dist = np.minimum(norm_dist, 1.2)
-                risk_stat = self.params['road_repulsion'] * (norm_dist ** self.params['road_exp'])
+            norm_dist = dist / nearest_half_w
+            norm_dist = np.minimum(norm_dist, 1.2)
+            risk_stat = (self.params['road_repulsion'] * (norm_dist ** self.params['road_exp'])).reshape(X.shape)
 
         risk_values = phi * (risk_stat + risk_dyn)
         return RiskGrid.from_grid_and_risk(grid, risk_values)

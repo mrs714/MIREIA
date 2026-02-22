@@ -7,3 +7,8 @@ spawnejar també pedestrians
 
 
 implementar rutes específiques, escenaris deterministes i fer que la simulació sigui sinchronous
+
+
+
+fer que en el visualitzador, li puguis passar una simulació guardada (una replay) i et tregui el video des de la càmera del cotxe,
+des de la càmera de fora (amb el cotxe marcat en verd), i del mapa de risc. 

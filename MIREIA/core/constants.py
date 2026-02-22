@@ -15,6 +15,10 @@ DEFAULT_VISIBILITY = 300.0  # Default visibility in meters
 MIN_VISIBILITY = 10.0  # Minimum visibility to avoid divide-by-zero
 
 # Static Risk (Road Boundaries)
-LANE_WIDTH_STD = 3.5  # Assumed standard lane width
-ROAD_REPULSION = 0.8  # Max risk at lane boundary
-ROAD_EXP = 6.0        # "Wall" steepness (higher = harder wall)
+LANE_WIDTH_STD = 2  # Assumed standard lane width
+ROAD_REPULSION =2  # Max risk at lane boundary
+ROAD_EXP = 2        # "Wall" steepness (higher = harder wall)
+
+# Base Uncertainties (Added to Gaussian Spread)
+BASE_LONGITUDINAL_UNCERTAINTY = 1.0  # Meters
+BASE_LATERAL_UNCERTAINTY = 2  # Meters

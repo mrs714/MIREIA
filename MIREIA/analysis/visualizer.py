@@ -19,10 +19,11 @@ class RiskGridVisualizer:
     Supports single-frame rendering and multi-frame video recording.
     """
 
-    def __init__(self, risk_grid: RiskGrid, bridge: SimulationBridge, oracle: RiskOracle = None):
+    def __init__(self, risk_grid: RiskGrid, bridge: SimulationBridge, oracle: RiskOracle = None, vmax: float = None):
         self.risk_grid = risk_grid
         self.bridge = bridge
         self.oracle = oracle or RiskOracle()
+        self.vmax = vmax  # Fixed color scale max. None = auto-scale per frame.
 
     def _render_frame(self, ax, fig, risk_grid: RiskGrid = None):
         """
@@ -45,7 +46,9 @@ class RiskGridVisualizer:
                   rg.center_y - half, rg.center_y + half]
 
         # Heatmap
-        norm = mcolors.Normalize(vmin=rg.lowest_risk, vmax=rg.highest_risk)
+        vmin = 0.0 if self.vmax is not None else rg.lowest_risk
+        vmax = self.vmax if self.vmax is not None else rg.highest_risk
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         ax.imshow(risk_array, origin='lower', extent=extent,
                   cmap='jet', norm=norm, aspect='equal', interpolation='bilinear')
 
@@ -101,7 +104,9 @@ class RiskGridVisualizer:
         rg = self.risk_grid
         n = int(rg.size / rg.resolution) + 1
         risk_array = np.array([p['risk_value'] for p in rg.grid]).reshape(n, n)
-        norm = mcolors.Normalize(vmin=rg.lowest_risk, vmax=rg.highest_risk)
+        vmin = 0.0 if self.vmax is not None else rg.lowest_risk
+        vmax = self.vmax if self.vmax is not None else rg.highest_risk
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         sm = plt.cm.ScalarMappable(cmap='jet', norm=norm)
         fig.colorbar(sm, ax=ax, label='Risk', shrink=0.8)
 
@@ -129,8 +134,12 @@ class RiskGridVisualizer:
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(10, 10))
 
-        # Add a persistent colorbar (will update norm on first frame)
-        sm = plt.cm.ScalarMappable(cmap='jet', norm=mcolors.Normalize(vmin=0, vmax=1))
+        # Add a persistent colorbar
+        if self.vmax is not None:
+            init_norm = mcolors.Normalize(vmin=0.0, vmax=self.vmax)
+        else:
+            init_norm = mcolors.Normalize(vmin=0, vmax=1)
+        sm = plt.cm.ScalarMappable(cmap='jet', norm=init_norm)
         cbar = fig.colorbar(sm, ax=ax, label='Risk', shrink=0.8)
 
         def update(frame_idx):
@@ -146,8 +155,9 @@ class RiskGridVisualizer:
             # 3. Render frame
             self._render_frame(ax, fig, risk_grid)
 
-            # 4. Update colorbar norm
-            sm.set_norm(mcolors.Normalize(vmin=risk_grid.lowest_risk, vmax=risk_grid.highest_risk))
+            # 4. Update colorbar norm (only if auto-scaling)
+            if self.vmax is None:
+                sm.set_norm(mcolors.Normalize(vmin=risk_grid.lowest_risk, vmax=risk_grid.highest_risk))
 
             print(f"\rFrame {frame_idx + 1}/{n_frames}", end="", flush=True)
 

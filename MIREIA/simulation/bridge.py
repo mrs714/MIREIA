@@ -1,4 +1,5 @@
 import carla 
+import numpy as np
 
 class ActorKinematics:
     """
@@ -6,21 +7,21 @@ class ActorKinematics:
     """
     def __init__(self, actor: carla.Actor):
         self.actor = actor
+        # Bounding box is static — cache once
+        bounding_box = actor.bounding_box
+        self.length = bounding_box.extent.x * 2
+        self.width = bounding_box.extent.y * 2
         self.update()
     
     def update(self):
-        location = self.actor.get_location()
-        self.x = location.x
-        self.y = location.y
+        transform = self.actor.get_transform()
+        self.x = transform.location.x
+        self.y = transform.location.y
+        self.heading = transform.rotation.yaw
         velocity = self.actor.get_velocity()
         self.v = (velocity.x ** 2 + velocity.y ** 2) ** 0.5
         self.vx = velocity.x
         self.vy = velocity.y
-        transform = self.actor.get_transform()
-        self.heading = transform.rotation.yaw
-        bounding_box = self.actor.bounding_box
-        self.length = bounding_box.extent.x * 2
-        self.width = bounding_box.extent.y * 2
 
     def __repr__(self):
         return f"ID: {self.actor.id}, ActorKinematics(x={self.x:.2f}, y={self.y:.2f}, v={self.v:.2f}, vx={self.vx:.2f}, vy={self.vy:.2f}, heading={self.heading:.1f})"
@@ -43,11 +44,17 @@ class EnvironmentState:
     """
     def __init__(self, world: carla.World):
         self.world = world
-        self.update()
         self.visibility = 300.0  # Default visibility in meters
         self.mu = 0.8  # Default friction coefficient (dry asphalt)
+        self._frame_counter = 0
+        self.update()
     
     def update(self):
+        # Weather changes rarely — only query every 30 frames
+        self._frame_counter += 1
+        if self._frame_counter % 30 != 1:
+            return
+
         weather: carla.WeatherParameters = self.world.get_weather()
 
         # All values 0 to 100 
@@ -65,15 +72,11 @@ class EnvironmentState:
 class WaypointState:
     """
     Represents the state of the road, including lane information and proximity to lane centers.
-    Extracted from a waypoint.
+    Extracted from a waypoint.  Road geometry is static so values are cached at init.
     """
     def __init__(self, waypoint: carla.Waypoint):
-        self.waypoint = waypoint
-        self.update()
-    
-    def update(self):
-        self.width = self.waypoint.lane_width
-        transform = self.waypoint.transform
+        self.width = waypoint.lane_width
+        transform = waypoint.transform
         self.x = transform.location.x
         self.y = transform.location.y
         self.heading = transform.rotation.yaw
@@ -81,22 +84,37 @@ class WaypointState:
 class WaypointStateCollection:
     """
     All the waypoints in the map, with additional context, like closest waypoint to ego.
+    Road geometry is static; numpy arrays are pre-built once for fast lookups.
     """
     def __init__(self, ego: EgoKinematics):
         self.ego = ego
         self.waypoints: list[WaypointState] = []
         self.closest_waypoint: WaypointState = None
-        self.update()
+        # Pre-built numpy arrays (populated by _build_arrays)
+        self._wp_x: np.ndarray = None
+        self._wp_y: np.ndarray = None
+        self._wp_half_w: np.ndarray = None
+        self._kd_tree = None
+
+    def _build_arrays(self):
+        """Call once after all waypoints have been added."""
+        from scipy.spatial import cKDTree
+        self._wp_x = np.array([wp.x for wp in self.waypoints])
+        self._wp_y = np.array([wp.y for wp in self.waypoints])
+        self._wp_half_w = np.array([wp.width / 2.0 for wp in self.waypoints])
+        coords = np.column_stack((self._wp_x, self._wp_y))
+        self._kd_tree = cKDTree(coords)
 
     def update(self):
         """
-        Updatse all the waypoints stored, and finds the closest one to the ego.
+        Only recomputes the closest waypoint to the ego (fast numpy op).
         """
-        for waypoint in self.waypoints:
-            waypoint.update()
-
-        if self.waypoints:
-            self.closest_waypoint = min(self.waypoints, key=lambda wp: ((wp.x - self.ego.x) ** 2 + (wp.y - self.ego.y) ** 2) ** 0.5)
+        if self._wp_x is None or len(self.waypoints) == 0:
+            return
+        dx = self._wp_x - self.ego.x
+        dy = self._wp_y - self.ego.y
+        idx = np.argmin(dx*dx + dy*dy)
+        self.closest_waypoint = self.waypoints[idx]
 
     def __repr__(self):
         return f"WaypointStateCollection(Total Waypoints: {len(self.waypoints)}, Closest Waypoint: (x={self.closest_waypoint.x:.2f}, y={self.closest_waypoint.y:.2f}, heading={self.closest_waypoint.heading:.1f}))"
@@ -131,6 +149,7 @@ class SimulationBridge:
         for waypoint in self.map.generate_waypoints(2.0): # Generates waypoints in each lane every 2 meters and returns all of them
             self.static_obstacles.waypoints.append(WaypointState(waypoint))
 
+        self.static_obstacles._build_arrays()  # Pre-build numpy arrays + KD-tree
         self.update()
 
     def _set_ego(self, ego_actor: carla.Actor):
@@ -152,16 +171,19 @@ class SimulationBridge:
     def get_static_obstacles(self) -> WaypointStateCollection:
         return self.static_obstacles
 
-    def update(self):
-        if self.ego:
+    def update(self, update_ego=True, update_dynamic_obstacles=True, update_pedestrians=True, update_static_obstacles=True, update_weather=True):
+        if self.ego and update_ego:
             self.ego.update()
-        for obstacle in self.dynamic_obstacles:
-            obstacle.update()
-        for pedestrian in self.pedestrians:
-            pedestrian.update()
-        if self.static_obstacles:
+        if update_dynamic_obstacles:
+            for obstacle in self.dynamic_obstacles:
+                obstacle.update()
+        if update_pedestrians:
+            for pedestrian in self.pedestrians:
+                pedestrian.update()
+        if self.static_obstacles and update_static_obstacles:
             self.static_obstacles.update()
-        self.env_state.update()
+        if update_weather:
+            self.env_state.update()
 
     def __repr__(self):
         return f"SimulationBridge(Ego: {self.ego}, Dynamic Obstacles: {len(self.dynamic_obstacles)}, Static Obstacles: {len(self.static_obstacles.waypoints) if self.static_obstacles else 0}, EnvState: (Visibility: {self.env_state.visibility:.1f}m, Friction: {self.env_state.mu:.2f}))"
