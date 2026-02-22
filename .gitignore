@@ -1,0 +1,18 @@
+# 1. Ignore everything
+*
+
+# 2. But do not ignore the .gitignore file itself
+!.gitignore
+
+# 3. Allow specific files
+!README.md
+!main.py
+
+# 4. Allow a specific folder
+# Note: You must allow the folder itself AND everything inside it
+!my_scripts/
+!my_scripts/**
+
+# 5. Allow certain file types anywhere
+!*.png
+!*.cpp
