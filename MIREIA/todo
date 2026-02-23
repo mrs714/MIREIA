@@ -12,3 +12,8 @@ implementar rutes específiques, escenaris deterministes i fer que la simulació
 
 fer que en el visualitzador, li puguis passar una simulació guardada (una replay) i et tregui el video des de la càmera del cotxe,
 des de la càmera de fora (amb el cotxe marcat en verd), i del mapa de risc. 
+
+activar el mode determinista
+
+incorporar elements estàtics com cotxes aparcats i semàfors a la funció de risc, 
+i fer un bake dels mapes

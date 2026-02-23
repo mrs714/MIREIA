@@ -26,6 +26,7 @@ class RiskOracle:
             'amplitude_gain': AMPLITUDE_GAIN,  # Mass/Lethality multiplier
             'min_sigma_x': MIN_SIGMA_X,     # Minimum longitudinal spread (meters)
             'min_sigma_y': MIN_SIGMA_Y,     # Minimum lateral spread (meters)
+            'max_distance': MAX_DISTANCE,   # Max distance for risk influence (meters)
             
             # Static Risk (Road Boundaries)
             'lane_width_std': LANE_WIDTH_STD,  # Assumed standard lane width
@@ -49,7 +50,7 @@ class RiskOracle:
         ego_kinematics: EgoKinematics = bridge.get_ego_kinematics()
         obstacles: list[DynamicObstacleKinematics] = bridge.get_obstacles()
         env_state: EnvironmentState = bridge.get_environment_state()
-        road_data: WaypointStateCollection = bridge.get_static_obstacles()
+        road_data: WaypointStateCollection = bridge.get_waypoints()
 
         mu = max(env_state.mu, self.params['min_friction'])
         vis = max(env_state.visibility, MIN_VISIBILITY)
@@ -86,7 +87,7 @@ class RiskOracle:
         ox, oy = obj.x, obj.y
         dx, dy = px - ox, py - oy
         
-        if (dx*dx + dy*dy) > 4900: return 0.0 # Optimization for points >70m away
+        if (dx*dx + dy*dy) > self.params["max_distance"] ** 2: return 0.0 # Optimization for points >N m away
 
         # Relative velocity
         vx_rel = obj.vx - ego_kinematics.vx
@@ -127,7 +128,7 @@ class RiskOracle:
         ego_kinematics: EgoKinematics = bridge.get_ego_kinematics()
         obstacles: list[DynamicObstacleKinematics] = bridge.get_obstacles()
         env_state: EnvironmentState = bridge.get_environment_state()
-        road_data: WaypointStateCollection = bridge.get_static_obstacles()
+        road_data: WaypointStateCollection = bridge.get_waypoints()
 
         # 1. Environment Scalar
         mu = max(env_state.mu, self.params['min_friction'])
@@ -172,17 +173,22 @@ class RiskOracle:
             exponent = -0.5 * ( (x_rot**2 / sigma_x**2) + (y_rot**2 / sigma_y**2) )
             risk_dyn += self.params['amplitude_gain'] * np.exp(exponent)
             
-        # 3. Static Risk (Using KD-tree for fast nearest-waypoint lookup)
+        # 3. Static Risk (brute-force nearest-waypoint lookup)
         risk_stat = np.zeros_like(X)
-        if road_data and road_data._kd_tree is not None:
-            # Query all grid points at once
-            grid_points = np.column_stack((X.ravel(), Y.ravel()))
-            dist, idx = road_data._kd_tree.query(grid_points)
-            nearest_half_w = road_data._wp_half_w[idx]
+        if road_data and road_data.waypoints:
+            wp_x = np.array([wp.x for wp in road_data.waypoints])
+            wp_y = np.array([wp.y for wp in road_data.waypoints])
+            wp_half_w = np.array([wp.width / 2.0 for wp in road_data.waypoints])
 
-            norm_dist = dist / nearest_half_w
-            norm_dist = np.minimum(norm_dist, 1.2)
-            risk_stat = (self.params['road_repulsion'] * (norm_dist ** self.params['road_exp'])).reshape(X.shape)
+            for i in range(X.shape[0]):
+                for j in range(X.shape[1]):
+                    dx = wp_x - X[i, j]
+                    dy = wp_y - Y[i, j]
+                    dist_sq = dx*dx + dy*dy
+                    idx = np.argmin(dist_sq)
+                    nearest_dist = np.sqrt(dist_sq[idx])
+                    norm_dist = min(nearest_dist / wp_half_w[idx], 1.2)
+                    risk_stat[i, j] = self.params['road_repulsion'] * (norm_dist ** self.params['road_exp'])
 
         risk_values = phi * (risk_stat + risk_dyn)
         return RiskGrid.from_grid_and_risk(grid, risk_values)
