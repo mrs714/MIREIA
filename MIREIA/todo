@@ -17,3 +17,6 @@ activar el mode determinista
 
 incorporar elements estàtics com cotxes aparcats i semàfors a la funció de risc, 
 i fer un bake dels mapes
+
+find map center should be a function that is done by the map handler, and not by the sensor handler
+in this way, it can also be used to bake the static danger map centering on a point

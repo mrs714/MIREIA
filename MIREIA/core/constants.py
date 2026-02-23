@@ -16,9 +16,9 @@ MIN_VISIBILITY = 10.0  # Minimum visibility to avoid divide-by-zero
 MAX_DISTANCE = 30.0  # Maximum distance for risk influence (meters)
 
 # Static risk (Static Obstacles)
-STATIC_OBSTACLE_DANGER = 10.0  # Base risk for being at the exact location of a static obstacle
-STATIC_OBSTACLE_RADIUS = 5.0  # Radius of influence for static obstacles (meters)
-STATIC_OBSTACLE_FALLOFF = 3.0  # Controls how quickly risk drops off (higher = sharper falloff)
+STATIC_OBSTACLE_DANGER = .25  # Base risk for being at the exact location of a static obstacle
+STATIC_OBSTACLE_RADIUS = 20.0  # Radius of influence for static obstacles (meters)
+STATIC_OBSTACLE_FALLOFF = 2  # Controls how quickly risk drops off (higher = sharper falloff)
 
 # Road risk
 LANE_WIDTH_STD = 2  # Assumed standard lane width
