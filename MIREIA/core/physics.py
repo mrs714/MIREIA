@@ -1,7 +1,7 @@
 import numpy as np
 import math
 from MIREIA.core.constants import *
-from MIREIA.simulation.bridge import SimulationBridge, EgoKinematics, DynamicObstacleKinematics, EnvironmentState, WaypointStateCollection
+from MIREIA.simulation.bridge import SimulationBridge, EgoKinematics, DynamicObstacleKinematics, EnvironmentState, WaypointStateCollection, StaticObstacleState
 from MIREIA.analysis.plotter import Grid, RiskGrid
 
 class RiskOracle:
@@ -27,8 +27,13 @@ class RiskOracle:
             'min_sigma_x': MIN_SIGMA_X,     # Minimum longitudinal spread (meters)
             'min_sigma_y': MIN_SIGMA_Y,     # Minimum lateral spread (meters)
             'max_distance': MAX_DISTANCE,   # Max distance for risk influence (meters)
+
+            # Static Risk (Static Obstacles)
+            'static_obstacle_danger': STATIC_OBSTACLE_DANGER,  # Base risk for being at the exact location of a static obstacle
+            'static_obstacle_radius': STATIC_OBSTACLE_RADIUS,  # Radius of influence for static obstacles (meters)
+            'static_obstacle_falloff': STATIC_OBSTACLE_FALLOFF,  # Controls how quickly risk drops off
             
-            # Static Risk (Road Boundaries)
+            # Road Risk (Road Boundaries)
             'lane_width_std': LANE_WIDTH_STD,  # Assumed standard lane width
             'road_repulsion': ROAD_REPULSION,  # Max risk at lane boundary
             'road_exp': ROAD_EXP,        # "Wall" steepness (higher = harder wall)
@@ -48,7 +53,8 @@ class RiskOracle:
     def calculate_scene_risk(self, query_point, bridge: SimulationBridge) -> float:
         """Calculates risk at a specific (x,y) point."""
         ego_kinematics: EgoKinematics = bridge.get_ego_kinematics()
-        obstacles: list[DynamicObstacleKinematics] = bridge.get_obstacles()
+        dynamic_obstacles: list[DynamicObstacleKinematics] = bridge.get_dynamic_obstacles()
+        static_obstacles: list[StaticObstacleState] = bridge.get_static_obstacles()
         env_state: EnvironmentState = bridge.get_environment_state()
         road_data: WaypointStateCollection = bridge.get_waypoints()
 
@@ -61,11 +67,11 @@ class RiskOracle:
 
         # 2. Dynamic Risk
         risk_dynamic = 0.0
-        for obj in obstacles:
+        for obj in dynamic_obstacles:
             risk_dynamic += self._compute_gaussian_at_point(query_point, obj, ego_kinematics, mu)
 
-        # 3. Static Risk – find the nearest waypoint to the query point
-        risk_static = 0.0
+        # 3. Road risk
+        risk_road = 0.0
         if road_data and road_data.waypoints:
             px, py = query_point
             best_dist_sq = float('inf')
@@ -77,9 +83,20 @@ class RiskOracle:
                     best_half_w = waypoint.width / 2.0
             nearest_dist = math.sqrt(best_dist_sq)
             norm_dist = min(nearest_dist / best_half_w, 1.2)
-            risk_static = self.params['road_repulsion'] * (norm_dist ** self.params['road_exp'])
+            risk_road = self.params['road_repulsion'] * (norm_dist ** self.params['road_exp'])
 
-        return phi_env * (risk_static + risk_dynamic)
+        # 4. Static obstacles risk
+        risk_static = 0.0
+        radius = self.params['static_obstacle_radius']
+        sigma_static = radius / self.params['static_obstacle_falloff']
+        for obj in static_obstacles:
+            dx = query_point[0] - obj.x
+            dy = query_point[1] - obj.y
+            dist_sq = dx*dx + dy*dy
+            if dist_sq < radius ** 2:
+                risk_static += self.params['static_obstacle_danger'] * math.exp(-0.5 * (dist_sq / sigma_static ** 2))
+
+        return phi_env * (risk_road + risk_dynamic + risk_static)
 
     def _compute_gaussian_at_point(self, point: tuple[float, float], obj: DynamicObstacleKinematics, ego_kinematics: EgoKinematics, mu: float):
         """Helper for single-point Gaussian math."""
@@ -126,7 +143,8 @@ class RiskOracle:
         """
         X, Y = grid.X, grid.Y
         ego_kinematics: EgoKinematics = bridge.get_ego_kinematics()
-        obstacles: list[DynamicObstacleKinematics] = bridge.get_obstacles()
+        dynamic_obstacles: list[DynamicObstacleKinematics] = bridge.get_dynamic_obstacles()
+        static_obstacles: list[StaticObstacleState] = bridge.get_static_obstacles()
         env_state: EnvironmentState = bridge.get_environment_state()
         road_data: WaypointStateCollection = bridge.get_waypoints()
 
@@ -140,7 +158,7 @@ class RiskOracle:
         half = grid.size / 2.0
         skip_margin = 70.0  # skip obstacles more than 70m from grid edge
         
-        for obj in obstacles:
+        for obj in dynamic_obstacles:
             # Skip obstacles far from grid bounds
             if (abs(obj.x - grid.center_x) > half + skip_margin or
                 abs(obj.y - grid.center_y) > half + skip_margin):
@@ -173,8 +191,8 @@ class RiskOracle:
             exponent = -0.5 * ( (x_rot**2 / sigma_x**2) + (y_rot**2 / sigma_y**2) )
             risk_dyn += self.params['amplitude_gain'] * np.exp(exponent)
             
-        # 3. Static Risk (brute-force nearest-waypoint lookup)
-        risk_stat = np.zeros_like(X)
+        # 3. Road Risk (brute-force nearest-waypoint lookup)
+        risk_road = np.zeros_like(X)
         if road_data and road_data.waypoints:
             wp_x = np.array([wp.x for wp in road_data.waypoints])
             wp_y = np.array([wp.y for wp in road_data.waypoints])
@@ -188,7 +206,18 @@ class RiskOracle:
                     idx = np.argmin(dist_sq)
                     nearest_dist = np.sqrt(dist_sq[idx])
                     norm_dist = min(nearest_dist / wp_half_w[idx], 1.2)
-                    risk_stat[i, j] = self.params['road_repulsion'] * (norm_dist ** self.params['road_exp'])
+                    risk_road[i, j] = self.params['road_repulsion'] * (norm_dist ** self.params['road_exp'])
 
-        risk_values = phi * (risk_stat + risk_dyn)
+        # 4. Static obstacles risk (radial Gaussian falloff)
+        risk_static = np.zeros_like(X)
+        radius = self.params['static_obstacle_radius']
+        sigma_static = radius / self.params['static_obstacle_falloff']
+        for obj in static_obstacles:
+            dx = X - obj.x
+            dy = Y - obj.y
+            dist_sq = dx*dx + dy*dy
+            mask = dist_sq < radius ** 2
+            risk_static[mask] += self.params['static_obstacle_danger'] * np.exp(-0.5 * (dist_sq[mask] / sigma_static ** 2))
+
+        risk_values = phi * (risk_road + risk_dyn + risk_static)
         return RiskGrid.from_grid_and_risk(grid, risk_values)

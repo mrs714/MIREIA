@@ -139,11 +139,16 @@ class SimulationBridge:
             elif 'walker.pedestrian' in actor.type_id:
                 self.pedestrians.append(PedestrianKinematics(actor))
 
-            # The following are static and only need to be intialized once:
-            elif 'TrafficSign' in actor.type_id:
-                # For simplicity, treat traffic signs as static obstacles with a fixed size
-                transform = actor.get_transform()
-                self.static_obstacles.append(StaticObstacleState(transform.location.x, transform.location.y, width=1.0, length=1.0))
+        # The following are static and only need to be intialized once:
+        traffic_signs = self.world.get_environment_objects(object_type=carla.CityObjectLabel.TrafficLight)
+        # Traffic light is a subtype of traffic sign, so it should be included.
+        # However, traffic signs includes light poles and such which we don't want. 
+        for sign in traffic_signs:
+            # For simplicity, treat traffic signs as static obstacles with a fixed size
+            transform = sign.transform
+            self.static_obstacles.append(StaticObstacleState(transform.location.x, transform.location.y, width=1.0, length=1.0))
+        
+
 
         # Initialize roads and waypoints
         self.waypoints = WaypointStateCollection()
@@ -159,7 +164,7 @@ class SimulationBridge:
     def get_ego_kinematics(self) -> EgoKinematics:
         return self.ego
     
-    def get_obstacles(self) -> list[DynamicObstacleKinematics]:
+    def get_dynamic_obstacles(self) -> list[DynamicObstacleKinematics]:
         return self.dynamic_obstacles
 
     def get_pedestrians(self) -> list[PedestrianKinematics]:

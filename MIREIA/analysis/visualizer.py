@@ -34,7 +34,8 @@ class RiskGridVisualizer:
 
         rg = risk_grid or self.risk_grid
         ego = self.bridge.get_ego_kinematics()
-        obstacles = self.bridge.get_obstacles()
+        dynamic_obstacles = self.bridge.get_dynamic_obstacles()
+        static_obstacles = self.bridge.get_static_obstacles()
         pedestrians = self.bridge.get_pedestrians()
         env = self.bridge.get_environment_state()
 
@@ -63,12 +64,16 @@ class RiskGridVisualizer:
                  head_width=0.6, head_length=0.4, fc='#00FF00', ec='#00FF00', linewidth=1.5)
 
         # Dynamic obstacles (red/gray boxes with velocity arrows)
-        for obj in obstacles:
+        for obj in dynamic_obstacles:
             self._draw_vehicle_box(ax, obj.x, obj.y, obj.length, obj.width, obj.heading,
                                    edgecolor='red', facecolor='#555555', linewidth=1, alpha=0.9)
             if abs(obj.vx) > 0.1 or abs(obj.vy) > 0.1:
                 ax.arrow(obj.x, obj.y, obj.vx * 0.5, obj.vy * 0.5,
                          head_width=0.4, head_length=0.3, fc='white', ec='white')
+                
+        # Static obstacles (black boxes)
+        for obs in static_obstacles:
+            self._draw_static_obstacle(ax, obs.x, obs.y, obs.length, obs.width)
 
         # Pedestrians (purple boxes)
         for ped in pedestrians:
@@ -78,7 +83,7 @@ class RiskGridVisualizer:
         # Title
         title = (f"Risk Heatmap  |  Ego speed: {ego.v:.1f} m/s  |  "
                  f"mu: {env.mu:.2f}  |  vis: {env.visibility:.0f}m  |  "
-                 f"obstacles: {len(obstacles)}")
+                 f"obstacles: {len(dynamic_obstacles)}")
         ax.set_title(title, fontsize=11, color='white', pad=10)
 
         ax.set_xlabel("X (m)")
@@ -175,6 +180,12 @@ class RiskGridVisualizer:
                                  facecolor=facecolor, alpha=alpha, label=label)
         t = Affine2D().rotate_deg(heading_deg).translate(x, y) + ax.transData
         rect.set_transform(t)
+        ax.add_patch(rect)
+
+    def _draw_static_obstacle(self, ax, x, y, length, width):
+        """Draws a static obstacle as a black box."""
+        rect = patches.Rectangle((x - length / 2, y - width / 2), length, width,
+                                 linewidth=1, edgecolor='black', facecolor='black', alpha=0.9)
         ax.add_patch(rect)
 
 

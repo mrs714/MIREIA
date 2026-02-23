@@ -15,7 +15,12 @@ DEFAULT_VISIBILITY = 300.0  # Default visibility in meters
 MIN_VISIBILITY = 10.0  # Minimum visibility to avoid divide-by-zero
 MAX_DISTANCE = 30.0  # Maximum distance for risk influence (meters)
 
-# Static Risk (Road Boundaries)
+# Static risk (Static Obstacles)
+STATIC_OBSTACLE_DANGER = 10.0  # Base risk for being at the exact location of a static obstacle
+STATIC_OBSTACLE_RADIUS = 5.0  # Radius of influence for static obstacles (meters)
+STATIC_OBSTACLE_FALLOFF = 3.0  # Controls how quickly risk drops off (higher = sharper falloff)
+
+# Road risk
 LANE_WIDTH_STD = 2  # Assumed standard lane width
 ROAD_REPULSION =2  # Max risk at lane boundary
 ROAD_EXP = 2        # "Wall" steepness (higher = harder wall)
