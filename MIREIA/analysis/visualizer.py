@@ -124,7 +124,8 @@ class RiskGridVisualizer:
 
     def render_video(self, save_path: str, n_frames: int = 100,
                      grid_size: float = 100.0, grid_resolution: float = 1.0,
-                     fps: int = 10, dpi: int = 100):
+                     fps: int = 10, dpi: int = 100,
+                     baked_static_risk: RiskGrid = None):
         """
         Records a video of n_frames. Each frame updates the simulation bridge,
         recomputes the risk grid centered on the ego, and renders.
@@ -135,6 +136,9 @@ class RiskGridVisualizer:
         :param grid_resolution: Resolution of the risk grid in meters.
         :param fps: Frames per second of the output video.
         :param dpi: Resolution of each frame.
+        :param baked_static_risk: Optional pre-baked static risk grid. If provided,
+            road and static obstacle risk is sampled via bilinear interpolation
+            instead of being recomputed every frame (much faster).
         """
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(10, 10))
@@ -155,7 +159,8 @@ class RiskGridVisualizer:
             ego = self.bridge.get_ego_kinematics()
             grid = Grid(center_x=ego.x, center_y=ego.y,
                         size=grid_size, resolution=grid_resolution)
-            risk_grid = self.oracle.calculate_risk_map(grid, self.bridge)
+            risk_grid = self.oracle.calculate_risk_map(grid, self.bridge,
+                                                       baked_static_risk=baked_static_risk)
 
             # 3. Render frame
             self._render_frame(ax, fig, risk_grid)
