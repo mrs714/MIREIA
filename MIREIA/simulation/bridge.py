@@ -171,7 +171,7 @@ class SimulationBridge:
             is_active = any((bx - ax)**2 + (by - ay)**2 < MATCH_THRESHOLD_SQ
                             for ax, ay in active_locations)
             if not is_active:
-                self.static_obstacles.append(StaticObstacleState(bx, by, width=bb.extent.x*2, length=bb.extent.y*2, type="ParkedVehicle", heading=bb.rotation.yaw))
+                self.static_obstacles.append(StaticObstacleState(bx, by, width=bb.extent.y*2, length=bb.extent.x*2, type="ParkedVehicle", heading=bb.rotation.yaw))
 
         # Get all croswalks
         crosswalks: List[carla.Location] = self.map.get_crosswalks()

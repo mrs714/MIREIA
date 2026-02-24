@@ -73,7 +73,7 @@ class RiskGridVisualizer:
                 
         # Static obstacles (black boxes)
         for obs in static_obstacles:
-            self._draw_static_obstacle(ax, obs.x, obs.y, obs.length, obs.width)
+            self._draw_static_obstacle(ax, obs.x, obs.y, obs.length, obs.width, obs.type, heading_deg=obs.heading)
 
         # Pedestrians (purple boxes)
         for ped in pedestrians:
@@ -187,10 +187,20 @@ class RiskGridVisualizer:
         rect.set_transform(t)
         ax.add_patch(rect)
 
-    def _draw_static_obstacle(self, ax, x, y, length, width):
-        """Draws a static obstacle as a black box."""
-        rect = patches.Rectangle((x - length / 2, y - width / 2), length, width,
-                                 linewidth=1, edgecolor='black', facecolor='black', alpha=0.9)
+    def _draw_static_obstacle(self, ax, x, y, length, width, type, heading_deg=0):
+        """Draws a static obstacle as a colored box."""
+        if type == "Crosswalk":
+            color = "#073800"
+        elif type == "TrafficLight":
+            color = '#FFAA00'
+        elif type == "ParkedVehicle":
+            color = "#500000"
+        else:
+            color = "#333333"
+        rect = patches.Rectangle((-length / 2, -width / 2), length, width,
+                                 linewidth=1, edgecolor='black', facecolor=color, alpha=0.9)
+        t = Affine2D().rotate_deg(heading_deg).translate(x, y) + ax.transData
+        rect.set_transform(t)
         ax.add_patch(rect)
 
 
