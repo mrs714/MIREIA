@@ -29,9 +29,7 @@ class RiskOracle:
             'max_distance': MAX_DISTANCE,   # Max distance for risk influence (meters)
 
             # Static Risk (Static Obstacles)
-            'static_obstacle_danger': STATIC_OBSTACLE_DANGER,  # Base risk for being at the exact location of a static obstacle
-            'static_obstacle_radius': STATIC_OBSTACLE_RADIUS,  # Radius of influence for static obstacles (meters)
-            'static_obstacle_falloff': STATIC_OBSTACLE_FALLOFF,  # Controls how quickly risk drops off
+            'static_obstacle_dict': STATIC_OBSTACLE_DICT,  # Parameters for different static obstacle types
             
             # Road Risk (Road Boundaries)
             'lane_width_std': LANE_WIDTH_STD,  # Assumed standard lane width
@@ -146,14 +144,18 @@ class RiskOracle:
 
         # 2. Static Obstacles Risk (radial Gaussian falloff)
         risk_static = np.zeros_like(X)
-        radius = self.params['static_obstacle_radius']
-        sigma_static = radius / self.params['static_obstacle_falloff']
         for obj in static_obstacles:
             dx = X - obj.x
             dy = Y - obj.y
             dist_sq = dx*dx + dy*dy
+
+            params = self.params['static_obstacle_dict'][obj.type]
+
+            radius = params['radius']
+            sigma_static = radius / params['falloff']
+
             mask = dist_sq < radius ** 2
-            risk_static[mask] += self.params['static_obstacle_danger'] * np.exp(-0.5 * (dist_sq[mask] / sigma_static ** 2))
+            risk_static[mask] += params['danger'] * np.exp(-0.5 * (dist_sq[mask] / sigma_static ** 2))
 
         risk_values = risk_road + risk_static
         return RiskGrid.from_grid_and_risk(grid, risk_values)

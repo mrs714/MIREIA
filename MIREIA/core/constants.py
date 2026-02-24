@@ -15,13 +15,27 @@ DEFAULT_VISIBILITY = 300.0  # Default visibility in meters
 MIN_VISIBILITY = 10.0  # Minimum visibility to avoid divide-by-zero
 MAX_DISTANCE = 30.0  # Maximum distance for risk influence (meters)
 
-# Static risk (Static Obstacles)
-STATIC_OBSTACLE_DANGER = .25  # Base risk for being at the exact location of a static obstacle
-STATIC_OBSTACLE_RADIUS = 20.0  # Radius of influence for static obstacles (meters)
-STATIC_OBSTACLE_FALLOFF = 2  # Controls how quickly risk drops off (higher = sharper falloff)
+# Static risk (Static Obstacles): this should match with the ones defined in bridge.py
+STATIC_OBSTACLE_DICT = {
+    'TrafficLight': {
+        'danger': 0.25,
+        'radius': 20.0,
+        'falloff': 2
+    },
+    'ParkedVehicle': {
+        'danger': 0.25,
+        'radius': 20.0,
+        'falloff': 2
+    },
+    'Crosswalk': {
+        'danger': 0.25,
+        'radius': 20.0,
+        'falloff': 2
+    },
+}
 
 # Road risk
-LANE_WIDTH_STD = 2  # Assumed standard lane width
+LANE_WIDTH_STD = 3  # Assumed standard lane width
 ROAD_REPULSION =2  # Max risk at lane boundary
 ROAD_EXP = 2        # "Wall" steepness (higher = harder wall)
 
