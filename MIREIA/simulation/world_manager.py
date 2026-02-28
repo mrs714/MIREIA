@@ -1,4 +1,4 @@
-import os, subprocess, time, random
+import os, subprocess
 import carla
 
 from MIREIA.simulation.routes import Route
@@ -7,12 +7,35 @@ from MIREIA.simulation.sensors import SensorManager
 from MIREIA.core.physics import RiskOracle
 from MIREIA.analysis.plotter import draw_risk_heatmap_3d, Grid
 
+from MIREIA.config import Config
 
 
 class Scenario:
+    """
+    A Scenario represents a situation in which the ego vehicle will be tested.
+    This class does not contain any logic, objects or actors, but simply serves as a container for the information that defines a scenario, such as:
+    - Name
+    - Definition
+    - Map name ...
 
-    def __init__(self, world, ):
-        self.world = world
+    It also manages the folder where 
+    """    
+
+    def __init__(self, name: str):
+        self.name = name
+        # Name will be something like "scenario_1", we have a folder like .../scenarios, and we join them to create a new folder .../scenarios/scenario_1 where we will store all the information related to that scenario, such as the pre baked risk map, the routes, etc.
+        self.folder_path = os.path.join(Config.PATH_TO_SCENARIOS, self.name)
+
+    def create_scenario(self, name: str, definition: str, map_name: str):
+        self.name = name
+        self.definition = definition
+        self.map_name = map_name
+
+    def load_scenario_from_json(self, json_path: str):
+        """
+        Load scenario information from a JSON file.
+        """
+        pass
 
 # A scenario needs, in this order: 
 """
