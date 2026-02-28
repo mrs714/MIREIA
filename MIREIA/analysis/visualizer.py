@@ -55,7 +55,7 @@ class RiskGridVisualizer:
 
         # Ego vehicle (green box with heading arrow)
         self._draw_vehicle_box(ax, ego.x, ego.y, ego.length, ego.width, ego.heading,
-                               edgecolor='#00FF00', facecolor='none', linewidth=2, label='Ego')
+                               edgecolor='#00FF00', facecolor='black', linewidth=2, label='Ego')
         ego_heading_rad = math.radians(ego.heading)
         arrow_len = max(ego.v * 0.5, ego.length * 0.6)
         ax.arrow(ego.x, ego.y,
@@ -296,10 +296,10 @@ class DummyRiskVisualizer:
         self.ax_plot.plot([-10, 80], [1.75, 1.75], 'w--', linewidth=2, alpha=0.5) # Left Ln
         self.ax_plot.plot([-10, 80], [-1.75, -1.75], 'w--', linewidth=2, alpha=0.5) # Right Ln
 
-        # 5. Draw Ego Vehicle (Green Box)
+        # 5. Draw Ego Vehicle (Green Box with black fill)
         ego_rect = patches.Rectangle((self.ego.x-2.2, self.ego.y-0.9), 4.5, 1.8, 
-                                     linewidth=2, edgecolor='#00FF00', facecolor='none', label='Ego')
-        self.ax_plot.add_patch(ego_rect)
+                                     linewidth=2, edgecolor='#00FF00', facecolor='#000000', label='Ego')
+        self.ax_plot.add_patch(ego_rect) 
 
         # 6. Draw Obstacles (Gray Boxes with Velocity Arrows)
         for obj in self.obstacles:
