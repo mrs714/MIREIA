@@ -90,10 +90,11 @@ class WaypointState:
     Extracted from a waypoint.  Road geometry is static so values are cached at init.
     """
     def __init__(self, waypoint: carla.Waypoint):
-        self.width = waypoint.lane_width
+        self.width = waypoint.lane_width 
         transform = waypoint.transform
         self.x = transform.location.x
         self.y = transform.location.y
+        self.id = waypoint.id
 
 class WaypointStateCollection:
     """
@@ -114,8 +115,7 @@ class WaypointStateCollection:
         return closest_wp
 
     def __repr__(self):
-        closest_wp = self.get_closest_waypoint(0, 0)  # Replace (0, 0) with actual ego position if available
-        return f"WaypointStateCollection(Total Waypoints: {len(self.waypoints)}, Closest Waypoint: (x={closest_wp.x:.2f}, y={closest_wp.y:.2f}, heading={closest_wp.heading:.1f}))"
+        return f"WaypointStateCollection(Total Waypoints: {len(self.waypoints)})"
 
 class SimulationBridge:
     """

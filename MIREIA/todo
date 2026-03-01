@@ -1,6 +1,3 @@
-inicialitzar bé el repository
-arreglar els fields desviats, i incrementar el risc en general
-
 spawnejar també pedestrians
 
 
@@ -13,12 +10,18 @@ implementar rutes específiques, escenaris deterministes i fer que la simulació
 fer que en el visualitzador, li puguis passar una simulació guardada (una replay) i et tregui el video des de la càmera del cotxe,
 des de la càmera de fora (amb el cotxe marcat en verd), i del mapa de risc. 
 
-activar el mode determinista
 
-incorporar elements estàtics com cotxes aparcats i semàfors a la funció de risc, 
-i fer un bake dels mapes
 
 find map center should be a function that is done by the map handler, and not by the sensor handler
 in this way, it can also be used to bake the static danger map centering on a point
 
 static obstacles should also take rotation into account, més que res pel visualitzador perquè sinó surten allà torçats al mig de la carretera
+
+
+
+Scenarios:
+Scenarios should have their own folder each, with their name
+Scenarios should start as a JSON with basic information, and the first time they are loaded:
+- The folder should be created if it doesn't exist
+- In that folder we should store the pre baked static risk map
+- We should also be able to store other elements such as Routes
