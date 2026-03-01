@@ -18,12 +18,12 @@ class ActorKinematics:
     def update(self):
         transform = self.actor.get_transform()
         self.x = transform.location.x
-        self.y = transform.location.y
-        self.heading = transform.rotation.yaw
+        self.y = -transform.location.y        # Negate: CARLA Y-right → plot Y-up
+        self.heading = -transform.rotation.yaw  # Negate: mirror yaw to match flipped Y
         velocity = self.actor.get_velocity()
         self.v = (velocity.x ** 2 + velocity.y ** 2) ** 0.5
         self.vx = velocity.x
-        self.vy = velocity.y
+        self.vy = -velocity.y                  # Negate: consistent with flipped Y
 
     def __repr__(self):
         return f"ID: {self.actor.id}, ActorKinematics(x={self.x:.2f}, y={self.y:.2f}, v={self.v:.2f}, vx={self.vx:.2f}, vy={self.vy:.2f}, heading={self.heading:.1f})"
@@ -93,7 +93,7 @@ class WaypointState:
         self.width = waypoint.lane_width 
         transform = waypoint.transform
         self.x = transform.location.x
-        self.y = transform.location.y
+        self.y = -transform.location.y  # Negate: CARLA Y-right → plot Y-up
         self.id = waypoint.id
 
 class WaypointStateCollection:
@@ -150,14 +150,14 @@ class SimulationBridge:
         for sign in traffic_signs:
             # For simplicity, treat traffic signs as static obstacles with a fixed size
             transform = sign.transform
-            self.static_obstacles.append(StaticObstacleState(transform.location.x, transform.location.y, width=1.0, length=1.0, type="TrafficLight", heading=transform.rotation.yaw))
+            self.static_obstacles.append(StaticObstacleState(transform.location.x, -transform.location.y, width=1.0, length=1.0, type="TrafficLight", heading=-transform.rotation.yaw))
         
         # How to obtain parked cars, from https://github.com/carla-simulator/carla/issues/2343
         # get_level_bbs returns BoundingBox objects for ALL meshes (active + parked).
         # get_actors().filter('vehicle.*') returns Actor objects for active (spawned) vehicles only.
         # We compare by location proximity to filter out active vehicles from the level BBs.
         active_vehicles = self.world.get_actors().filter('vehicle.*')
-        active_locations = [(v.get_location().x, v.get_location().y) for v in active_vehicles]
+        active_locations = [(v.get_location().x, -v.get_location().y) for v in active_vehicles]
 
         all_cars = self.world.get_level_bbs(carla.CityObjectLabel.Car)
         all_bus = self.world.get_level_bbs(carla.CityObjectLabel.Bus)
@@ -167,16 +167,16 @@ class SimulationBridge:
 
         MATCH_THRESHOLD_SQ = 1.5 ** 2  # 3 m — accounts for bbox center vs actor origin offset
         for bb in all_level_bbs:
-            bx, by = bb.location.x, bb.location.y
+            bx, by = bb.location.x, -bb.location.y
             is_active = any((bx - ax)**2 + (by - ay)**2 < MATCH_THRESHOLD_SQ
                             for ax, ay in active_locations)
             if not is_active:
-                self.static_obstacles.append(StaticObstacleState(bx, by, width=bb.extent.y*2, length=bb.extent.x*2, type="ParkedVehicle", heading=bb.rotation.yaw))
+                self.static_obstacles.append(StaticObstacleState(bx, by, width=bb.extent.y*2, length=bb.extent.x*2, type="ParkedVehicle", heading=-bb.rotation.yaw))
 
         # Get all croswalks
         crosswalks: List[carla.Location] = self.map.get_crosswalks()
         for crosswalk in crosswalks:
-            self.static_obstacles.append(StaticObstacleState(crosswalk.x, crosswalk.y, width=3, length=3, type="Crosswalk", heading=0))
+            self.static_obstacles.append(StaticObstacleState(crosswalk.x, -crosswalk.y, width=3, length=3, type="Crosswalk", heading=0))
 
         # Initialize roads and waypoints
         self.waypoints = WaypointStateCollection()
