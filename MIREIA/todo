@@ -25,3 +25,6 @@ Scenarios should start as a JSON with basic information, and the first time they
 - The folder should be created if it doesn't exist
 - In that folder we should store the pre baked static risk map
 - We should also be able to store other elements such as Routes
+
+
+fer que el mon avanci x segons per pas, els mateixos que temps per fotograma en el visualizer (pot agafar la dada directament)
