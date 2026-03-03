@@ -1,6 +1,7 @@
 import numpy as np
 import math
 from MIREIA.core.constants import *
+# PEDESTRIAN_AMPLITUDE_GAIN imported via wildcard
 from MIREIA.simulation.bridge import SimulationBridge, EgoKinematics, DynamicObstacleKinematics, EnvironmentState, WaypointStateCollection, StaticObstacleState
 from MIREIA.analysis.plotter import Grid, RiskGrid
 
@@ -31,6 +32,9 @@ class RiskOracle:
             # Static Risk (Static Obstacles)
             'static_obstacle_dict': STATIC_OBSTACLE_DICT,  # Parameters for different static obstacle types
             
+            # Pedestrian Risk
+            'pedestrian_amplitude_gain': PEDESTRIAN_AMPLITUDE_GAIN,  # Higher consequence for vulnerable road users
+
             # Road Risk (Road Boundaries)
             'lane_width_std': LANE_WIDTH_STD,  # Assumed standard lane width
             'road_repulsion': ROAD_REPULSION,  # Max risk at lane boundary
@@ -66,17 +70,25 @@ class RiskOracle:
         # 1. Environmental Scalar
         phi_env = (1.0 / mu) * (1.0 + self.params['beta_vis'] * (v_ego / vis))
 
-        # 2. Dynamic Risk
+        # 2. Dynamic Risk (vehicles)
         risk_dynamic = 0.0
         for obj in dynamic_obstacles:
             risk_dynamic += self._compute_gaussian_at_point(query_point, obj, ego_kinematics, mu)
+
+        # 2b. Pedestrian Risk (vulnerable road users)
+        pedestrians: list[DynamicObstacleKinematics] = bridge.get_pedestrians()
+        for ped in pedestrians:
+            risk_dynamic += self._compute_gaussian_at_point(
+                query_point, ped, ego_kinematics, mu,
+                amplitude_override=self.params['pedestrian_amplitude_gain']
+            )
 
         # 3. Static Risk (road + static obstacles)
         risk_static_total = self._sample_baked_point(baked_static_risk, query_point[0], query_point[1])
         
         return phi_env * (risk_static_total + risk_dynamic)
 
-    def _compute_gaussian_at_point(self, point: tuple[float, float], obj: DynamicObstacleKinematics, ego_kinematics: EgoKinematics, mu: float):
+    def _compute_gaussian_at_point(self, point: tuple[float, float], obj, ego_kinematics: EgoKinematics, mu: float, amplitude_override: float = None):
         """Helper for single-point Gaussian math."""
         px, py = point
         ox, oy = obj.x, obj.y
@@ -104,8 +116,9 @@ class RiskOracle:
 
         exponent = -0.5 * ((x_local/sigma_x)**2 + (y_local/sigma_y)**2) # Gaussian formula; higher exponent = closer to center = more risk
         if exponent < -20: return 0.0
-            
-        return self.params['amplitude_gain'] * math.exp(exponent)
+
+        amp = amplitude_override if amplitude_override is not None else self.params['amplitude_gain']
+        return amp * math.exp(exponent)
 
     # =========================================================
     #  B. BAKED STATIC RISK MAP
@@ -249,12 +262,16 @@ class RiskOracle:
         vis = max(env_state.visibility, MIN_VISIBILITY)
         phi = (1.0 / mu) * (1.0 + self.params['beta_vis'] * (ego_kinematics.v / vis))
         
-        # 2. Dynamic Risk (Vectorized over X, Y)
+        # 2. Dynamic Risk (Vectorized over X, Y) — vehicles + pedestrians
         risk_dyn = np.zeros_like(X)
         half = grid.size / 2.0
         skip_margin = 70.0  # skip obstacles more than 70m from grid edge
+
+        pedestrians = bridge.get_pedestrians()
+        all_dynamic = [(obj, self.params['amplitude_gain']) for obj in dynamic_obstacles] + \
+                      [(ped, self.params['pedestrian_amplitude_gain']) for ped in pedestrians]
         
-        for obj in dynamic_obstacles:
+        for obj, amp_gain in all_dynamic:
             # Skip obstacles far from grid bounds
             if (abs(obj.x - grid.center_x) > half + skip_margin or
                 abs(obj.y - grid.center_y) > half + skip_margin):
@@ -284,7 +301,7 @@ class RiskOracle:
             
             # Gaussian
             exponent = -0.5 * ( (x_rot**2 / sigma_x**2) + (y_rot**2 / sigma_y**2) )
-            risk_dyn += self.params['amplitude_gain'] * np.exp(exponent)
+            risk_dyn += amp_gain * np.exp(exponent)
             
         # 3. Static Risk (road + static obstacles)
         risk_static_total = self._sample_baked_grid(baked_static_risk, X, Y)

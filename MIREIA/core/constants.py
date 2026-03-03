@@ -9,6 +9,7 @@ DEFAULT_MU = 0.8     # Default friction coefficient (dry asphalt)
 # Dynamic Risk (Gaussian Shape)
 REACTION_TIME = 1.5   # Human perception-reaction time (seconds)
 AMPLITUDE_GAIN = 1.0  # Mass/Lethality multiplier
+PEDESTRIAN_AMPLITUDE_GAIN = 2.0  # Pedestrians are vulnerable road users — higher consequence
 MIN_SIGMA_X = 5     # Minimum longitudinal spread (meters)
 MIN_SIGMA_Y = 3     # Minimum lateral spread (meters)
 DEFAULT_VISIBILITY = 300.0  # Default visibility in meters
