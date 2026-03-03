@@ -12,6 +12,8 @@ from MIREIA.core.physics import RiskOracle
 from MIREIA.analysis.plotter import Grid, RiskGrid
 from MIREIA.simulation.bridge import EgoKinematics, DynamicObstacleKinematics, EnvironmentState, SimulationBridge
 
+from carla import World
+
 class RiskGridVisualizer:
     """
     Takes a RiskGrid and a SimulationBridge, and renders a top-down heatmap
@@ -19,8 +21,9 @@ class RiskGridVisualizer:
     Supports single-frame rendering and multi-frame video recording.
     """
 
-    def __init__(self, risk_grid: RiskGrid, bridge: SimulationBridge, oracle: RiskOracle = None, vmax: float = None):
+    def __init__(self, risk_grid: RiskGrid, world: World, bridge: SimulationBridge, oracle: RiskOracle = None, vmax: float = None):
         self.risk_grid = risk_grid
+        self.world = world
         self.bridge = bridge
         self.oracle = oracle or RiskOracle()
         self.vmax = vmax  # Fixed color scale max. None = auto-scale per frame.
@@ -79,6 +82,9 @@ class RiskGridVisualizer:
         for ped in pedestrians:
             self._draw_vehicle_box(ax, ped.x, ped.y, ped.length, ped.width, ped.heading,
                                    edgecolor='#AA00FF', facecolor='#7700AA', linewidth=1, alpha=0.9)
+            if abs(ped.vx) > 0.01 or abs(ped.vy) > 0.01:
+                ax.arrow(ped.x, ped.y, ped.vx * 5, ped.vy * 5,
+                         head_width=0.3, head_length=0.2, fc='#AA00FF', ec='#AA00FF')
 
         # Title
         title = (f"Risk Heatmap  |  Ego speed: {ego.v:.1f} m/s  |  "
@@ -153,6 +159,7 @@ class RiskGridVisualizer:
 
         def update(frame_idx):
             # 1. Advance simulation state
+            self.world.tick()  # Advance the simulation by one tick (e.g. 0.05s)
             self.bridge.update()
 
             # 2. Recompute grid centered on ego
