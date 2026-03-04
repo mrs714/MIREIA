@@ -130,7 +130,7 @@ class RiskGridVisualizer:
 
     def render_video(self, save_path: str, n_frames: int = 100,
                      grid_size: float = 100.0, grid_resolution: float = 1.0,
-                     fps: int = 10, dpi: int = 100,
+                     fps: int = None, dpi: int = 100,
                      baked_static_risk: RiskGrid = None):
         """
         Records a video of n_frames. Each frame updates the simulation bridge,
@@ -140,12 +140,18 @@ class RiskGridVisualizer:
         :param n_frames: Number of frames to record.
         :param grid_size: Size of the risk grid in meters.
         :param grid_resolution: Resolution of the risk grid in meters.
-        :param fps: Frames per second of the output video.
+        :param fps: Frames per second of the output video. If None (default),
+            derived from the world's fixed_delta_seconds so the video plays
+            back in real time.
         :param dpi: Resolution of each frame.
         :param baked_static_risk: Optional pre-baked static risk grid. If provided,
             road and static obstacle risk is sampled via bilinear interpolation
             instead of being recomputed every frame (much faster).
         """
+        # Derive FPS from simulation tick step for real-time playback
+        if fps is None:
+            delta = self.world.get_settings().fixed_delta_seconds
+            fps = int(round(1.0 / delta)) if delta and delta > 0 else 10
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(10, 10))
 
