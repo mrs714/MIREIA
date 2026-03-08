@@ -10,4 +10,8 @@ class Config:
     CARLA_PORT: int = int(os.getenv('CARLA_PORT', 2000))
     
     # Paths
-    PATH_TO_SCENARIOS: str = os.getenv('PATH_TO_SCENARIOS', './scenarios')
+    _MIREIA_DIR = os.path.dirname(os.path.abspath(__file__))
+    PATH_TO_SCENARIOS: str = os.getenv(
+        'PATH_TO_SCENARIOS',
+        os.path.join(_MIREIA_DIR, 'scenarios'),
+    )

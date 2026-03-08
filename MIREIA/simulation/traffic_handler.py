@@ -261,7 +261,7 @@ class TrafficHandler:
             print(f"Destroyed {len(self._vehicle_ids)} vehicles.")
 
         # Destroy ego
-        if self.ego_vehicle is not None and self.ego_vehicle.is_alive():
+        if self.ego_vehicle is not None and self.ego_vehicle.is_alive:
             self.ego_vehicle.destroy()
             print("Destroyed ego vehicle.")
 
