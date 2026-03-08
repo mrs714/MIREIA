@@ -1,6 +1,6 @@
 import carla
 import random as stdlib_random
-from carla import SpawnActor, SetAutopilot, FutureActor, DestroyActor
+from carla.command import SpawnActor, SetAutopilot, FutureActor, DestroyActor
 
 
 class TrafficHandler:
