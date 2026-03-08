@@ -28,3 +28,5 @@ Scenarios should start as a JSON with basic information, and the first time they
 
 
 fer que el mon avanci x segons per pas, els mateixos que temps per fotograma en el visualizer (pot agafar la dada directament)
+
+decidir exactament que vull que continguin les db i definir l'estructura
