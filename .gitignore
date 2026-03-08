@@ -25,3 +25,6 @@ MIREIA/.env
 # Ignore any __pycache__ wherever it is
 __pycache__/
 **/__pycache__/
+__pycache__/**
+*.pyc
+*.pyo
