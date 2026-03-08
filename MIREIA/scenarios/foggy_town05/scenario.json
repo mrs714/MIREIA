@@ -1,0 +1,20 @@
+{
+    "name": "foggy_town05",
+    "description": "Highway scenario on Town05 with dense fog to test perception under low visibility.",
+    "map_name": "Town05",
+    "weather": {
+        "cloudiness": 90,
+        "fog_density": 80,
+        "fog_distance": 10,
+        "sun_altitude_angle": 30
+    },
+    "ego_blueprint": "vehicle.lincoln.mkz_2020",
+    "ego_spawn_index": null,
+    "ego_autopilot": true,
+    "n_vehicles": 40,
+    "n_pedestrians": 10,
+    "pct_running": 0.0,
+    "pct_crossing": 0.0,
+    "safe_vehicles": true,
+    "seed": 7
+}
