@@ -6,6 +6,7 @@ import carla
 from MIREIA.simulation.bridge import SimulationBridge
 from MIREIA.simulation.sensors import SensorManager
 from MIREIA.simulation.traffic_handler import TrafficHandler
+from MIREIA.data_collection.recorder import DatasetLogger
 from MIREIA.config import Config
 
 
@@ -201,6 +202,7 @@ class WorldManager:
         self.bridge: SimulationBridge | None = None
         self.sensor_manager: SensorManager | None = None
         self.ego_vehicle: carla.Actor | None = None
+        self.dataset_logger: DatasetLogger | None = None
 
         # Connect to CARLA
         self.__connect_carla()
@@ -331,6 +333,28 @@ class WorldManager:
         if self.verbose:
             print(f"SimulationBridge initialized: {self.bridge}")
 
+    # ── Dataset recording ───────────────────────────────────────────
+    def enable_recording(self, append: bool = True) -> DatasetLogger:
+        """
+        Create a :class:`DatasetLogger` that writes frame data to a JSONL
+        file inside the scenario's own folder
+        (``<PATH_TO_SCENARIOS>/<name>/dataset.jsonl``).
+        Call after :meth:`load_scenario`.
+
+        :param append: Append to an existing file (True) or overwrite (False).
+        :returns: The created DatasetLogger instance.
+        """
+        if self.scenario is None:
+            raise RuntimeError("No scenario loaded — call load_scenario first.")
+
+        jsonl_path = os.path.join(self.scenario.folder_path, "dataset.jsonl")
+        self.dataset_logger = DatasetLogger(jsonl_path, append=append)
+
+        if self.verbose:
+            print(f"Recording enabled → {jsonl_path}")
+
+        return self.dataset_logger
+
     # ── Sensor helpers ──────────────────────────────────────────────
     def setup_sensors(self, save_dir: str = "output",
                       ego_resolution: tuple[int, int] = (800, 600),
@@ -355,18 +379,40 @@ class WorldManager:
         return self.sensor_manager
 
     # ── Simulation stepping ─────────────────────────────────────────
-    def tick(self):
+    def tick(self, ground_truth_risk: float | None = None,
+             rgb_image_path: str = "") -> dict | None:
         """
-        Advance the simulation by one step and update the bridge state.
-        Only meaningful in synchronous mode.
+        Advance the simulation by one step, update the bridge state,
+        and — if recording is enabled — log the frame.
+
+        :param ground_truth_risk: Risk label for this frame.  Required when
+            a DatasetLogger is active; ignored otherwise.
+        :param rgb_image_path: Relative path to the saved RGB image.
+        :returns: The logged record dict, or *None* if recording is off.
         """
         self.world.tick()
         if self.bridge is not None:
             self.bridge.update()
 
+        record = None
+        if self.dataset_logger is not None and self.bridge is not None:
+            record = self.dataset_logger.log_frame(
+                bridge=self.bridge,
+                scenario=self.scenario,
+                ego_vehicle=self.ego_vehicle,
+                frame_id=self.dataset_logger.frame_count,
+                ground_truth_risk=ground_truth_risk if ground_truth_risk is not None else 0.0,
+                rgb_image_path=rgb_image_path,
+            )
+        return record
+
     # ── Teardown ────────────────────────────────────────────────────
     def __teardown_scenario(self):
         """Destroy all actors spawned by the current scenario."""
+        if self.dataset_logger is not None:
+            self.dataset_logger.close()
+            self.dataset_logger = None
+
         if self.traffic_handler is not None:
             self.traffic_handler.destroy_all()
             self.traffic_handler = None
