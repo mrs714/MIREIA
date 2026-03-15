@@ -1,3 +1,6 @@
 ffmpeg
 scipy
 python-dotenv
+torch
+torchvision
+pillow
