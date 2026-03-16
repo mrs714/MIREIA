@@ -1,12 +1,15 @@
 import os
 import json
 import subprocess
+import numpy as np
 import carla
 
 from MIREIA.simulation.bridge import SimulationBridge
 from MIREIA.simulation.sensors import SensorManager
 from MIREIA.simulation.traffic_handler import TrafficHandler
 from MIREIA.data_collection.recorder import DatasetLogger
+from MIREIA.core.physics import RiskOracle
+from MIREIA.analysis.plotter import Grid, RiskGrid
 from MIREIA.config import Config
 
 
@@ -203,6 +206,10 @@ class WorldManager:
         self.sensor_manager: SensorManager | None = None
         self.ego_vehicle: carla.Actor | None = None
         self.dataset_logger: DatasetLogger | None = None
+        self.risk_oracle = RiskOracle()
+        self.baked_static_risk: RiskGrid | None = None
+        self._static_risk_resolution: float = 2.0
+        self._static_risk_margin: float = 20.0
 
         # Connect to CARLA
         self.__connect_carla()
@@ -221,7 +228,7 @@ class WorldManager:
             print(f"Connecting to CARLA at {Config.CARLA_HOST}:{Config.CARLA_PORT}...")
 
         self.client = carla.Client(Config.CARLA_HOST, Config.CARLA_PORT)
-        self.client.set_timeout(20.0)
+        #self.client.set_timeout(10.0)
         self.world = self.client.get_world()
 
         if self.verbose:
@@ -267,6 +274,7 @@ class WorldManager:
         self.__apply_weather()
         self.__spawn_traffic()
         self.__initialize_bridge()
+        self.__bake_static_risk_map()
 
         if self.verbose:
             print(f"Scenario '{scenario.name}' is ready.")
@@ -333,6 +341,59 @@ class WorldManager:
         if self.verbose:
             print(f"SimulationBridge initialized: {self.bridge}")
 
+    def __bake_static_risk_map(self):
+        if self.bridge is None:
+            raise RuntimeError("Cannot bake static risk map: SimulationBridge is not initialized.")
+            return
+
+        bounds = self.__compute_map_bounds()
+        if bounds is None:
+            raise RuntimeError("Cannot bake static risk map: failed to compute map bounds.")
+            return
+        
+        if self.verbose:
+            print(f"Computing static risk map with bounds: {bounds} and resolution: {self._static_risk_resolution}m...")
+
+        center_x, center_y, size = bounds
+        grid = Grid(
+            center_x=center_x,
+            center_y=center_y,
+            size=size,
+            resolution=self._static_risk_resolution,
+        )
+        self.baked_static_risk = self.risk_oracle.bake_static_risk(grid, self.bridge)
+
+    def __compute_map_bounds(self) -> tuple[float, float, float] | None:
+        waypoints = self.bridge.get_waypoints() if self.bridge else None
+        if waypoints is None or not waypoints.waypoints:
+            return None
+
+        xs = np.array([wp.x for wp in waypoints.waypoints])
+        ys = np.array([wp.y for wp in waypoints.waypoints])
+
+        min_x, max_x = float(xs.min()), float(xs.max())
+        min_y, max_y = float(ys.min()), float(ys.max())
+
+        center_x = (min_x + max_x) / 2.0
+        center_y = (min_y + max_y) / 2.0
+        size = max(max_x - min_x, max_y - min_y) + (2.0 * self._static_risk_margin)
+
+        return center_x, center_y, size
+
+    def get_risk(self) -> float:
+        if self.bridge is None:
+            raise RuntimeError("Cannot compute risk: SimulationBridge is not initialized.")
+        if self.baked_static_risk is None:
+            raise RuntimeError("Cannot compute risk: static risk map is not baked.")
+
+        ego = self.bridge.get_ego_kinematics()
+        if ego is None:
+            raise RuntimeError("Cannot compute risk: ego vehicle not available.")
+
+        return self.risk_oracle.calculate_scene_risk(
+            (ego.x, ego.y), self.bridge, self.baked_static_risk
+        )
+
     # ── Dataset recording ───────────────────────────────────────────
     def enable_recording(self, append: bool = True) -> DatasetLogger:
         """
@@ -357,8 +418,8 @@ class WorldManager:
 
     # ── Sensor helpers ──────────────────────────────────────────────
     def setup_sensors(self, save_dir: str = "output",
-                      ego_resolution: tuple[int, int] = (800, 600),
-                      map_resolution: tuple[int, int] = (2000, 2000)) -> SensorManager:
+                      ego_resolution: tuple[int, int] = (512, 512),
+                      map_resolution: tuple[int, int] = (100, 100)) -> SensorManager:
         """
         Attach cameras to the ego vehicle.  Call after :meth:`load_scenario`.
 
@@ -401,8 +462,10 @@ class WorldManager:
                 scenario=self.scenario,
                 ego_vehicle=self.ego_vehicle,
                 frame_id=self.dataset_logger.frame_count,
-                ground_truth_risk=ground_truth_risk if ground_truth_risk is not None else 0.0,
+                ground_truth_risk=ground_truth_risk,
                 rgb_image_path=rgb_image_path,
+                risk_oracle=self.risk_oracle,
+                baked_static_risk=self.baked_static_risk,
             )
         return record
 

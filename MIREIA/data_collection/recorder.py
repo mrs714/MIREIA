@@ -38,6 +38,8 @@ from MIREIA.simulation.bridge import (
     EnvironmentState,
     StaticObstacleState,
 )
+from MIREIA.core.physics import RiskOracle
+from MIREIA.analysis.plotter import RiskGrid
 
 
 class DatasetLogger:
@@ -57,10 +59,14 @@ class DatasetLogger:
         if *False* the file is truncated on open.
     """
 
-    def __init__(self, output_path: str, append: bool = True):
+    def __init__(self, output_path: str, append: bool = True, delete_existing: bool = False):
         self.output_path = output_path
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
+        if delete_existing and os.path.exists(output_path):
+            if os.path.isfile(output_path):
+                os.remove(output_path)
+        
         mode = "a" if append else "w"
         self._file: TextIO = open(output_path, mode, encoding="utf-8")
         self._frame_count: int = 0
@@ -72,9 +78,11 @@ class DatasetLogger:
         scenario,                        # Scenario (import-free to avoid circular deps)
         ego_vehicle: carla.Actor,
         frame_id: int,
-        ground_truth_risk: float,
+        ground_truth_risk: float | None,
         rgb_image_path: str = "",
         timestamp: float | None = None,
+        risk_oracle: RiskOracle | None = None,
+        baked_static_risk: RiskGrid | None = None,
     ) -> dict:
         """
         Build a frame record from live simulation state and write it as a
@@ -90,8 +98,9 @@ class DatasetLogger:
             The ego CARLA actor (used to read vehicle controls).
         frame_id : int
             Sequential frame counter managed by the caller.
-        ground_truth_risk : float
-            Ground-truth risk label for this frame (computed externally).
+        ground_truth_risk : float | None
+            Ground-truth risk label for this frame. If None or 0.0, a risk
+            value is computed with the risk oracle.
         rgb_image_path : str
             Relative path to the saved front-camera RGB image.
         timestamp : float | None
@@ -104,6 +113,16 @@ class DatasetLogger:
         """
         if timestamp is None:
             timestamp = time.time()
+
+        if ground_truth_risk is None or ground_truth_risk == 0.0:
+            if risk_oracle is None or baked_static_risk is None:
+                raise ValueError(
+                    "ground_truth_risk is None/0.0 but risk_oracle or baked_static_risk is missing"
+                )
+            ego = bridge.get_ego_kinematics()
+            ground_truth_risk = risk_oracle.calculate_scene_risk(
+                (ego.x, ego.y), bridge, baked_static_risk
+            )
 
         record = self._build_record(
             bridge, scenario, ego_vehicle,

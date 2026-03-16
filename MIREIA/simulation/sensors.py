@@ -1,4 +1,6 @@
 # Spawns Cameras, Lidar, Collision sensors
+import queue
+
 import carla
 import numpy as np
 
@@ -69,13 +71,20 @@ class SensorManager:
             
             self.__map_camera = self.__world.spawn_actor(blueprint, map_transform)
 
-    def __save_single_snapshot(self, camera: carla.Actor, camera_name: str):
+    def __capture_single(self, camera: carla.Actor, tick_fn, timeout: float):
+        image_queue: queue.Queue = queue.Queue()
+
         def callback(image):
-            # Starts the camera callback function and then after saving a single image, it stops the camera again
-            image_path = f"{self.__save_dir}/{camera_name}_{image.frame}.png"
-            image.save_to_disk(image_path)
-            camera.stop()
+            image_queue.put(image)
+
         camera.listen(callback)
+        try:
+            if tick_fn is not None:
+                tick_fn()
+            image = image_queue.get(timeout=timeout)
+        finally:
+            camera.stop()
+        return image
 
     def __save_snapshots(self, camera: carla.Actor, camera_name: str, duration: float = None):
         # Starts the camera callback function and saves images until the simulation ends or the camera is stopped
@@ -90,14 +99,28 @@ class SensorManager:
             image.save_to_disk(image_path)
         camera.listen(callback)
     
-    def save_ego_frame(self):
-        self.__save_single_snapshot(self.__ego_camera, "ego")
+    def save_ego_frame(self, save_path: str | None = None,
+                       tick_fn=None, timeout: float = 2.0) -> str:
+        if tick_fn is None:
+            tick_fn = self.__world.tick
+        image = self.__capture_single(self.__ego_camera, tick_fn, timeout)
+        if save_path is None:
+            save_path = f"{self.__save_dir}/ego_{image.frame}.png"
+        image.save_to_disk(save_path)
+        return save_path
 
     def save_ego_frames(self, duration: float = None):
         self.__save_snapshots(self.__ego_camera, "ego", duration)
 
-    def save_map_frame(self):
-        self.__save_single_snapshot(self.__map_camera, "map")
+    def save_map_frame(self, save_path: str | None = None,
+                       tick_fn=None, timeout: float = 2.0) -> str:
+        if tick_fn is None:
+            tick_fn = self.__world.tick
+        image = self.__capture_single(self.__map_camera, tick_fn, timeout)
+        if save_path is None:
+            save_path = f"{self.__save_dir}/map_{image.frame}.png"
+        image.save_to_disk(save_path)
+        return save_path
 
     def save_map_frames(self, duration: float = None):
         self.__save_snapshots(self.__map_camera, "map", duration)
