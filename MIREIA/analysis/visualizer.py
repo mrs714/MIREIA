@@ -1,10 +1,17 @@
-import numpy as np
+import json
 import math
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as patches
 from matplotlib.transforms import Affine2D
 from matplotlib.animation import FuncAnimation
+from PIL import Image, ImageDraw, ImageFont
 
 from matplotlib.widgets import Slider, RadioButtons
 
@@ -215,6 +222,279 @@ class RiskGridVisualizer:
         t = Affine2D().rotate_deg(heading_deg).translate(x, y) + ax.transData
         rect.set_transform(t)
         ax.add_patch(rect)
+
+
+def render_static_risk_map(risk_grid: RiskGrid, save_path: str,
+                           resolution: tuple[int, int] = (1024, 1024),
+                           dpi: int = 150,
+                           vmax: float | None = None) -> str:
+    """
+    Render a static, full-map risk heatmap image to disk.
+
+    :param risk_grid: Pre-baked RiskGrid covering the entire map.
+    :param save_path: Output image path.
+    :param resolution: (width, height) of the output image in pixels.
+    :param dpi: Dots-per-inch for the saved image.
+    :param vmax: Optional fixed max value for the color scale.
+    :returns: The save_path for convenience.
+    """
+    plt.style.use('dark_background')
+    width_px, height_px = resolution
+    fig_w = max(width_px / dpi, 1.0)
+    fig_h = max(height_px / dpi, 1.0)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+    n = int(risk_grid.size / risk_grid.resolution) + 1
+    risk_array = np.array([p['risk_value'] for p in risk_grid.grid]).reshape(n, n)
+    half = risk_grid.size / 2.0
+    extent = [risk_grid.center_x - half, risk_grid.center_x + half,
+              risk_grid.center_y - half, risk_grid.center_y + half]
+
+    vmin = 0.0 if vmax is not None else risk_grid.lowest_risk
+    vmax = vmax if vmax is not None else risk_grid.highest_risk
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    ax.imshow(risk_array, origin='lower', extent=extent,
+              cmap='jet', norm=norm, aspect='equal', interpolation='bilinear')
+
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_xlim(extent[0], extent[1])
+    ax.set_ylim(extent[2], extent[3])
+    ax.grid(True, alpha=0.15)
+
+    sm = plt.cm.ScalarMappable(cmap='jet', norm=norm)
+    fig.colorbar(sm, ax=ax, label='Risk', shrink=0.8)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
+    plt.close(fig)
+    return save_path
+
+
+def render_risk_map_with_actors(risk_grid: RiskGrid, world: World, bridge: SimulationBridge,
+                                save_path: str,
+                                resolution: tuple[int, int] = (1024, 1024),
+                                dpi: int = 150,
+                                vmax: float | None = None) -> str:
+    """
+    Render a full-map risk heatmap including ego and actors and save to disk.
+
+    :param risk_grid: Pre-baked RiskGrid covering the entire map.
+    :param world: CARLA world (used only for metadata in the visualizer).
+    :param bridge: SimulationBridge providing ego and actor kinematics.
+    :param save_path: Output image path.
+    :param resolution: (width, height) of the output image in pixels.
+    :param dpi: Dots-per-inch for the saved image.
+    :param vmax: Optional fixed max value for the color scale.
+    :returns: The save_path for convenience.
+    """
+    plt.style.use('dark_background')
+    width_px, height_px = resolution
+    fig_w = max(width_px / dpi, 1.0)
+    fig_h = max(height_px / dpi, 1.0)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+    visualizer = RiskGridVisualizer(risk_grid=risk_grid, world=world, bridge=bridge, vmax=vmax)
+    visualizer._render_frame(ax, fig, risk_grid=risk_grid)
+
+    n = int(risk_grid.size / risk_grid.resolution) + 1
+    risk_array = np.array([p['risk_value'] for p in risk_grid.grid]).reshape(n, n)
+    vmin = 0.0 if vmax is not None else risk_grid.lowest_risk
+    vmax = vmax if vmax is not None else risk_grid.highest_risk
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    sm = plt.cm.ScalarMappable(cmap='jet', norm=norm)
+    fig.colorbar(sm, ax=ax, label='Risk', shrink=0.8)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
+    plt.close(fig)
+    return save_path
+
+
+class DatasetVideoComposer:
+    """
+    Compose a 2x2 tiled video from dataset JSONL frames.
+
+    Layout (clockwise):
+    - top-left: dashcam
+    - top-right: empty
+    - bottom-right: aerial/top-down
+    - bottom-left: risk map
+    """
+
+    def __init__(self, jsonl_path: str, fps: int = 10, background=(0, 0, 0)):
+        self.jsonl_path = Path(jsonl_path)
+        self.dataset_dir = self.jsonl_path.parent
+        self.fps = fps
+        self.background = background
+
+    def build_video(self, output_name: str = "dataset_video.mp4") -> str:
+        """
+        Read the JSONL, compose frames, and write a video next to the JSONL.
+
+        :param output_name: Output video filename.
+        :returns: Path to the created video.
+        """
+        frames_dir = self.dataset_dir / "_video_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+
+        records = self._load_records()
+        if not records:
+            raise RuntimeError("No frames found in JSONL.")
+
+        tile_size = self._infer_tile_size(records)
+        if tile_size is None:
+            raise RuntimeError("No image paths found in JSONL.")
+
+        for idx, record in enumerate(records):
+            frame = self._compose_frame(record, tile_size)
+            frame_path = frames_dir / f"frame_{idx:06d}.png"
+            frame.save(frame_path)
+
+        output_path = self.dataset_dir / output_name
+        self._encode_video(frames_dir, output_path)
+        shutil.rmtree(frames_dir, ignore_errors=True)
+        return str(output_path)
+
+    def _load_records(self) -> list[dict]:
+        records: list[dict] = []
+        with self.jsonl_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                records.append(json.loads(line))
+        return records
+
+    def _infer_tile_size(self, records: list[dict]) -> tuple[int, int] | None:
+        for record in records:
+            for key in ("rgb_image_path", "risk_map_image_path", "topdown_image_path"):
+                rel = record.get(key) or ""
+                if rel:
+                    img_path = self.dataset_dir / rel
+                    if img_path.exists():
+                        with Image.open(img_path) as img:
+                            return img.size
+        return None
+
+    def _load_image(self, rel_path: str) -> Image.Image | None:
+        if not rel_path:
+            return None
+        img_path = self.dataset_dir / rel_path
+        if not img_path.exists():
+            return None
+        return Image.open(img_path)
+
+    def _compose_frame(self, record: dict, tile_size: tuple[int, int]) -> Image.Image:
+        tile_w, tile_h = tile_size
+        canvas = Image.new("RGB", (tile_w * 2, tile_h * 2), self.background)
+
+        dashcam = self._load_image(record.get("rgb_image_path", ""))
+        risk = self._load_image(record.get("risk_map_image_path", ""))
+        aerial = self._load_image(record.get("topdown_image_path", ""))
+        risk_value = record.get("ground_truth_risk", None)
+
+        if dashcam is not None:
+            canvas.paste(dashcam.resize((tile_w, tile_h)), (0, 0))
+            dashcam.close()
+        if risk is not None:
+            canvas.paste(risk.resize((tile_w, tile_h)), (0, tile_h))
+            risk.close()
+        if aerial is not None:
+            canvas.paste(aerial.resize((tile_w, tile_h)), (tile_w, tile_h))
+            aerial.close()
+
+        if risk_value is not None:
+            risk_tile = self._render_risk_tile(risk_value, tile_w, tile_h)
+            if risk_tile is not None:
+                canvas.paste(risk_tile, (tile_w, 0))
+
+        return canvas
+
+    def _render_risk_tile(self, risk_value: float, width: int, height: int) -> Image.Image | None:
+        try:
+            risk = float(risk_value)
+        except (TypeError, ValueError):
+            return None
+
+        risk_display = max(0.0, min(10.0, risk))
+        risk_norm = risk_display / 10.0
+        r = int(255 * risk_norm)
+        g = int(255 * (1.0 - risk_norm))
+        b = 0
+        tile = Image.new("RGB", (width, height), (r, g, b))
+
+        draw = ImageDraw.Draw(tile)
+        font_size = max(10, int(min(width, height) * 0.13))
+        small_font_size = max(9, int(font_size * 0.5))
+        try:
+            font = ImageFont.truetype("arial.ttf", font_size)
+            small_font = ImageFont.truetype("arial.ttf", small_font_size)
+        except OSError:
+            font = ImageFont.load_default()
+            small_font = ImageFont.load_default()
+
+        text = f"Ground truth:\n{risk_display:.2f}"
+        text_w, text_h = self._measure_multiline(draw, text, font, spacing=4)
+        draw.multiline_text(
+            ((width - text_w) / 2, (height - text_h) / 2),
+            text,
+            fill=(0, 0, 0),
+            font=font,
+            align="center",
+            spacing=4,
+        )
+
+        # Draw a simple vertical scale bar on the right
+        bar_w = max(8, width // 30)
+        bar_height = int(height * 0.8)
+        bar_x0 = width - bar_w - 4
+        bar_y0 = int((height - bar_height) / 2)
+        bar_y1 = bar_y0 + bar_height
+        for y in range(bar_y0, bar_y1):
+            t = 1.0 - (y - bar_y0) / max(1, (bar_y1 - bar_y0))
+            rr = int(255 * t)
+            gg = int(255 * (1.0 - t))
+            draw.line([(bar_x0, y), (bar_x0 + bar_w, y)], fill=(rr, gg, 0))
+
+        top_label = "10"
+        bot_label = "0"
+        top_w, top_h = self._measure_multiline(draw, top_label, small_font)
+        bot_w, bot_h = self._measure_multiline(draw, bot_label, small_font)
+        draw.text((bar_x0 - top_w - 3, bar_y0 - top_h / 2), top_label, fill=(0, 0, 0), font=small_font)
+        draw.text((bar_x0 - bot_w - 3, bar_y1 - bot_h / 2), bot_label, fill=(0, 0, 0), font=small_font)
+
+        return tile
+
+    def _measure_multiline(self, draw: ImageDraw.ImageDraw, text: str,
+                           font: ImageFont.ImageFont, spacing: int = 2) -> tuple[int, int]:
+        lines = text.split("\n")
+        widths = []
+        heights = []
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            widths.append(bbox[2] - bbox[0])
+            heights.append(bbox[3] - bbox[1])
+        text_w = max(widths) if widths else 0
+        text_h = sum(heights) + spacing * max(0, len(lines) - 1)
+        return text_w, text_h
+
+    def _encode_video(self, frames_dir: Path, output_path: Path):
+        if output_path.exists():
+            output_path.unlink()
+
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            raise RuntimeError("ffmpeg not found in PATH. Please install ffmpeg or add it to PATH.")
+
+        cmd = [
+            ffmpeg_path,
+            "-y",
+            "-framerate", str(self.fps),
+            "-i", str(frames_dir / "frame_%06d.png"),
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            str(output_path),
+        ]
+        subprocess.run(cmd, check=True)
 
 
 class DummyRiskVisualizer:

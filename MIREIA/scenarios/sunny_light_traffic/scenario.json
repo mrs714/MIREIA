@@ -7,9 +7,9 @@
     "ego_spawn_index": 50,
     "ego_autopilot": true,
     "n_vehicles": 80,
-    "n_pedestrians": 15,
-    "pct_running": 0.0,
-    "pct_crossing": 0.1,
+    "n_pedestrians": 35,
+    "pct_running": 0.2,
+    "pct_crossing": 0.3,
     "safe_vehicles": true,
-    "seed": 42
+    "seed": 24
 }

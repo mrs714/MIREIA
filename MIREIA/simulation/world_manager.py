@@ -10,6 +10,7 @@ from MIREIA.simulation.traffic_handler import TrafficHandler
 from MIREIA.data_collection.recorder import DatasetLogger
 from MIREIA.core.physics import RiskOracle
 from MIREIA.analysis.plotter import Grid, RiskGrid
+from MIREIA.analysis.visualizer import render_risk_map_with_actors
 from MIREIA.config import Config
 
 
@@ -210,6 +211,11 @@ class WorldManager:
         self.baked_static_risk: RiskGrid | None = None
         self._static_risk_resolution: float = 2.0
         self._static_risk_margin: float = 20.0
+        self._static_risk_image_path: str | None = None
+        self._static_risk_image_resolution: tuple[int, int] = (1024, 1024)
+        self._static_risk_image_dpi: int = 150
+        self._record_topdown: bool = False
+        self._record_static_risk_image: bool = False
 
         # Connect to CARLA
         self.__connect_carla()
@@ -228,7 +234,7 @@ class WorldManager:
             print(f"Connecting to CARLA at {Config.CARLA_HOST}:{Config.CARLA_PORT}...")
 
         self.client = carla.Client(Config.CARLA_HOST, Config.CARLA_PORT)
-        #self.client.set_timeout(10.0)
+        self.client.set_timeout(10.0)
         self.world = self.client.get_world()
 
         if self.verbose:
@@ -275,6 +281,7 @@ class WorldManager:
         self.__spawn_traffic()
         self.__initialize_bridge()
         self.__bake_static_risk_map()
+        self._static_risk_image_path = None
 
         if self.verbose:
             print(f"Scenario '{scenario.name}' is ready.")
@@ -363,6 +370,79 @@ class WorldManager:
         )
         self.baked_static_risk = self.risk_oracle.bake_static_risk(grid, self.bridge)
 
+    def save_static_risk_map_image(self, save_path: str | None = None,
+                                   resolution: tuple[int, int] | None = None,
+                                   dpi: int | None = None,
+                                   vmax: float | None = None) -> str:
+        """
+        Render and save a static risk heatmap for the entire map.
+
+        :param save_path: Optional output file path. Defaults to the scenario folder.
+        :param resolution: Output image resolution (width, height) in pixels.
+        :param dpi: Dots-per-inch for the saved image.
+        :param vmax: Optional fixed max value for the color scale.
+        :returns: The saved image path.
+        """
+        if self.scenario is None:
+            raise RuntimeError("Cannot save static risk map: no scenario loaded.")
+        if self.baked_static_risk is None:
+            raise RuntimeError("Cannot save static risk map: static risk map is not baked.")
+
+        resolution = resolution or self._static_risk_image_resolution
+        dpi = dpi or self._static_risk_image_dpi
+
+        if save_path is None:
+            save_path = os.path.join(
+                self.scenario.folder_path,
+                f"risk_map_{resolution[0]}x{resolution[1]}.png",
+            )
+
+        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+        render_risk_map_with_actors(
+            self.baked_static_risk,
+            world=self.world,
+            bridge=self.bridge,
+            save_path=save_path,
+            resolution=resolution,
+            dpi=dpi,
+            vmax=vmax,
+        )
+        self._static_risk_image_path = save_path
+        return save_path
+
+    def save_risk_frame_image(self, save_path: str,
+                              resolution: tuple[int, int] | None = None,
+                              dpi: int | None = None,
+                              vmax: float | None = None) -> str:
+        """
+        Render and save a per-frame risk map with live actor overlays.
+
+        :param save_path: Output image path.
+        :param resolution: Output image resolution (width, height) in pixels.
+        :param dpi: Dots-per-inch for the saved image.
+        :param vmax: Optional fixed max value for the color scale.
+        :returns: The saved image path.
+        """
+        if self.scenario is None:
+            raise RuntimeError("Cannot save risk frame image: no scenario loaded.")
+        if self.baked_static_risk is None:
+            raise RuntimeError("Cannot save risk frame image: static risk map is not baked.")
+
+        resolution = resolution or self._static_risk_image_resolution
+        dpi = dpi or self._static_risk_image_dpi
+
+        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+        render_risk_map_with_actors(
+            self.baked_static_risk,
+            world=self.world,
+            bridge=self.bridge,
+            save_path=save_path,
+            resolution=resolution,
+            dpi=dpi,
+            vmax=vmax,
+        )
+        return save_path
+
     def __compute_map_bounds(self) -> tuple[float, float, float] | None:
         waypoints = self.bridge.get_waypoints() if self.bridge else None
         if waypoints is None or not waypoints.waypoints:
@@ -395,7 +475,11 @@ class WorldManager:
         )
 
     # ── Dataset recording ───────────────────────────────────────────
-    def enable_recording(self, append: bool = True) -> DatasetLogger:
+    def enable_recording(self, append: bool = True,
+                         include_topdown: bool = False,
+                         include_static_risk_image: bool = False,
+                         static_risk_image_resolution: tuple[int, int] = (1024, 1024),
+                         static_risk_image_dpi: int = 150) -> DatasetLogger:
         """
         Create a :class:`DatasetLogger` that writes frame data to a JSONL
         file inside the scenario's own folder
@@ -403,6 +487,10 @@ class WorldManager:
         Call after :meth:`load_scenario`.
 
         :param append: Append to an existing file (True) or overwrite (False).
+        :param include_topdown: If True, log the top-down image path when provided.
+        :param include_static_risk_image: If True, log the static risk map image path.
+        :param static_risk_image_resolution: Output resolution for the static risk map image.
+        :param static_risk_image_dpi: DPI used when saving the static risk map image.
         :returns: The created DatasetLogger instance.
         """
         if self.scenario is None:
@@ -410,6 +498,16 @@ class WorldManager:
 
         jsonl_path = os.path.join(self.scenario.folder_path, "dataset.jsonl")
         self.dataset_logger = DatasetLogger(jsonl_path, append=append)
+        self._record_topdown = include_topdown
+        self._record_static_risk_image = include_static_risk_image
+        self._static_risk_image_resolution = static_risk_image_resolution
+        self._static_risk_image_dpi = static_risk_image_dpi
+
+        if self._record_static_risk_image:
+            self.save_static_risk_map_image(
+                resolution=self._static_risk_image_resolution,
+                dpi=self._static_risk_image_dpi,
+            )
 
         if self.verbose:
             print(f"Recording enabled → {jsonl_path}")
@@ -419,7 +517,10 @@ class WorldManager:
     # ── Sensor helpers ──────────────────────────────────────────────
     def setup_sensors(self, save_dir: str = "output",
                       ego_resolution: tuple[int, int] = (512, 512),
-                      map_resolution: tuple[int, int] = (100, 100)) -> SensorManager:
+                      map_resolution: tuple[int, int] = (100, 100),
+                      enable_map_camera: bool = True,
+                      map_fov: float = 90.0,
+                      align_risk_rotation: bool = True) -> SensorManager:
         """
         Attach cameras to the ego vehicle.  Call after :meth:`load_scenario`.
 
@@ -431,17 +532,37 @@ class WorldManager:
         if self.ego_vehicle is None:
             raise RuntimeError("No ego vehicle — load a scenario first.")
         world_map = self.world.get_map()
+        map_center = None
+        map_size = None
+        if enable_map_camera:
+            bounds = self.__compute_map_bounds()
+            if bounds is not None:
+                center_x, center_y, size = bounds
+                map_center = (center_x, -center_y)
+                map_size = size
+
+        map_rotation_yaw = -90.0 if align_risk_rotation else 0.0
+        map_rotation_roll = 0.0
+
         self.sensor_manager = SensorManager(
             self.world, world_map, self.ego_vehicle,
             save_dir=save_dir,
             ego_resolution=ego_resolution,
             map_resolution=map_resolution,
+            enable_map_camera=enable_map_camera,
+            map_center=map_center,
+            map_size=map_size,
+            map_fov=map_fov,
+            map_rotation_yaw=map_rotation_yaw,
+            map_rotation_roll=map_rotation_roll,
         )
         return self.sensor_manager
 
     # ── Simulation stepping ─────────────────────────────────────────
     def tick(self, ground_truth_risk: float | None = None,
-             rgb_image_path: str = "") -> dict | None:
+             rgb_image_path: str = "",
+             topdown_image_path: str = "",
+             risk_map_image_path: str = "") -> dict | None:
         """
         Advance the simulation by one step, update the bridge state,
         and — if recording is enabled — log the frame.
@@ -449,6 +570,8 @@ class WorldManager:
         :param ground_truth_risk: Risk label for this frame.  Required when
             a DatasetLogger is active; ignored otherwise.
         :param rgb_image_path: Relative path to the saved RGB image.
+        :param topdown_image_path: Relative path to the saved top-down image.
+        :param risk_map_image_path: Relative path to the static risk map image.
         :returns: The logged record dict, or *None* if recording is off.
         """
         self.world.tick()
@@ -457,6 +580,17 @@ class WorldManager:
 
         record = None
         if self.dataset_logger is not None and self.bridge is not None:
+            if not self._record_topdown:
+                topdown_image_path = ""
+            if not self._record_static_risk_image:
+                risk_map_image_path = ""
+            if self._record_static_risk_image and not risk_map_image_path:
+                if self._static_risk_image_path is None:
+                    self.save_static_risk_map_image(
+                        resolution=self._static_risk_image_resolution,
+                        dpi=self._static_risk_image_dpi,
+                    )
+                risk_map_image_path = self._static_risk_image_path or ""
             record = self.dataset_logger.log_frame(
                 bridge=self.bridge,
                 scenario=self.scenario,
@@ -464,6 +598,8 @@ class WorldManager:
                 frame_id=self.dataset_logger.frame_count,
                 ground_truth_risk=ground_truth_risk,
                 rgb_image_path=rgb_image_path,
+                topdown_image_path=topdown_image_path,
+                risk_map_image_path=risk_map_image_path,
                 risk_oracle=self.risk_oracle,
                 baked_static_risk=self.baked_static_risk,
             )
@@ -483,6 +619,7 @@ class WorldManager:
         self.bridge = None
         self.sensor_manager = None
         self.ego_vehicle = None
+        self._static_risk_image_path = None
 
     def destroy(self):
         """

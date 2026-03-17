@@ -12,18 +12,19 @@ Typical usage (managed by WorldManager)::
     for step in range(N):
         wm.tick()
         logger.log_frame(bridge=wm.bridge,
-                         scenario=wm.scenario,
-                         ego_vehicle=wm.ego_vehicle,
-                         frame_id=step,
-                         ground_truth_risk=risk_value,
-                         rgb_image_path=f"images/rgb_{step:06d}.png")
+                 scenario=wm.scenario,
+                 ego_vehicle=wm.ego_vehicle,
+                 frame_id=step,
+                 ground_truth_risk=risk_value,
+                 rgb_image_path=f"images/rgb_{step:06d}.png",
+                 topdown_image_path=f"images/topdown_{step:06d}.png",
+                 risk_map_image_path="images/risk_map.png")
     logger.close()
 """
 
 from __future__ import annotations
 
 import json
-import math
 import os
 import time
 from typing import TextIO
@@ -33,10 +34,7 @@ import carla
 from MIREIA.simulation.bridge import (
     SimulationBridge,
     EgoKinematics,
-    DynamicObstacleKinematics,
-    PedestrianKinematics,
     EnvironmentState,
-    StaticObstacleState,
 )
 from MIREIA.core.physics import RiskOracle
 from MIREIA.analysis.plotter import RiskGrid
@@ -80,6 +78,8 @@ class DatasetLogger:
         frame_id: int,
         ground_truth_risk: float | None,
         rgb_image_path: str = "",
+        topdown_image_path: str = "",
+        risk_map_image_path: str = "",
         timestamp: float | None = None,
         risk_oracle: RiskOracle | None = None,
         baked_static_risk: RiskGrid | None = None,
@@ -103,6 +103,10 @@ class DatasetLogger:
             value is computed with the risk oracle.
         rgb_image_path : str
             Relative path to the saved front-camera RGB image.
+        topdown_image_path : str
+            Relative path to the saved top-down RGB image.
+        risk_map_image_path : str
+            Relative path to the saved static risk map image.
         timestamp : float | None
             Wall-clock timestamp.  Defaults to ``time.time()``.
 
@@ -128,6 +132,8 @@ class DatasetLogger:
             bridge, scenario, ego_vehicle,
             frame_id, ground_truth_risk,
             rgb_image_path,
+            topdown_image_path,
+            risk_map_image_path,
             timestamp,
         )
 
@@ -173,6 +179,8 @@ class DatasetLogger:
         frame_id: int,
         ground_truth_risk: float,
         rgb_image_path: str,
+        topdown_image_path: str,
+        risk_map_image_path: str,
         timestamp: float,
     ) -> dict:
         ego = bridge.get_ego_kinematics()
@@ -185,6 +193,8 @@ class DatasetLogger:
 
             # ── Image path (relative) ───────────────────────────────
             "rgb_image_path":     rgb_image_path,
+            "topdown_image_path": topdown_image_path,
+            "risk_map_image_path": risk_map_image_path,
 
             # ── Ground-truth targets ────────────────────────────────
             "ground_truth_risk":  ground_truth_risk,
@@ -192,9 +202,6 @@ class DatasetLogger:
 
             # ── Ego vehicle physics ─────────────────────────────────
             "ego": self._serialize_ego(ego, ego_vehicle),
-
-            # ── Scene actors ────────────────────────────────────────
-            "actors": self._serialize_actors(bridge, ego),
 
             # ── Environment ─────────────────────────────────────────
             "environment": self._serialize_environment(env, scenario),
@@ -216,44 +223,6 @@ class DatasetLogger:
                 "brake":    ctrl.brake,
             },
         }
-
-    # ── Actors (vehicles + pedestrians) ─────────────────────────────
-    @staticmethod
-    def _serialize_actors(bridge: SimulationBridge, ego: EgoKinematics) -> list[dict]:
-        actors: list[dict] = []
-
-        for obs in bridge.get_dynamic_obstacles():
-            dist = math.hypot(obs.x - ego.x, obs.y - ego.y)
-            actors.append({
-                "actor_id": obs.actor.id,
-                "type":     "vehicle",
-                "speed":    obs.v,
-                "distance_to_ego": dist,
-                "position": {"x": obs.x, "y": obs.y},
-            })
-
-        for ped in bridge.get_pedestrians():
-            dist = math.hypot(ped.x - ego.x, ped.y - ego.y)
-            actors.append({
-                "actor_id": ped.actor.id,
-                "type":     "pedestrian",
-                "speed":    ped.v,
-                "distance_to_ego": dist,
-                "position": {"x": ped.x, "y": ped.y},
-            })
-
-        # Static obstacles stored in the bridge (parked cars, traffic lights, ...)
-        for i, so in enumerate(bridge.get_static_obstacles()):
-            dist = math.hypot(so.x - ego.x, so.y - ego.y)
-            actors.append({
-                "actor_id": f"static_{i}",
-                "type":     so.type,
-                "speed":    0.0,
-                "distance_to_ego": dist,
-                "position": {"x": so.x, "y": so.y},
-            })
-
-        return actors
 
     # ── Environment ─────────────────────────────────────────────────
     @staticmethod
