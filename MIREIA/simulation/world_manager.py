@@ -290,6 +290,26 @@ class WorldManager:
         )
         return save_path
 
+    def compose_dataset_video(self, fps: int = 10, dataset_jsonl_path: str | None = None) -> str:
+        """
+        Build a dataset video from the current scenario's dataset JSONL.
+
+        :param fps: Frames per second for the output video.
+        :param dataset_jsonl_path: Optional path override for the dataset JSONL.
+        :returns: Path to the rendered video.
+        """
+        if self.scenario is None:
+            raise RuntimeError("Cannot compose dataset video: no scenario loaded.")
+
+        dataset_jsonl_path = dataset_jsonl_path or os.path.join(
+            self.scenario.folder_path, "dataset.jsonl"
+        )
+
+        from MIREIA.analysis.visualizer import DatasetVideoComposer
+
+        composer = DatasetVideoComposer(dataset_jsonl_path, fps=fps)
+        return composer.build_video()
+
     def __compute_map_bounds(self) -> tuple[float, float, float] | None:
         waypoints = self.bridge.get_waypoints() if self.bridge else None
         if waypoints is None or not waypoints.waypoints:
@@ -434,8 +454,6 @@ class WorldManager:
         if self.dataset_logger is not None and self.bridge is not None:
             if not self._record_topdown:
                 topdown_image_path = ""
-            if not self._record_static_risk_image:
-                risk_map_image_path = ""
             if self._record_static_risk_image and not risk_map_image_path:
                 if self._static_risk_image_path is None:
                     self.save_static_risk_map_image(
