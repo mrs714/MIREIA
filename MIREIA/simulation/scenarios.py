@@ -183,7 +183,7 @@ def generate_mireia_dataset(target_count: int = 54) -> list[Scenario]:
     }
 
     # Towns 01 through 07
-    towns = [f'Town0{i}' for i in range(1, 8)]
+    towns = [f'Town0{i}' for i in range(1, 6)] + ['Town07', 'Town09']
 
     scenarios: list[Scenario] = []
 

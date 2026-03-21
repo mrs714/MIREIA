@@ -131,9 +131,9 @@ class RiskGridVisualizer:
         vmax = self.vmax if self.vmax is not None else rg.highest_risk
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         sm = plt.cm.ScalarMappable(cmap='jet', norm=norm)
-        fig.colorbar(sm, ax=ax, label='Risk', shrink=0.8)
 
         fig.tight_layout()
+        _add_colorbar(fig, ax, sm)
 
         if save_path:
             fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
@@ -173,7 +173,8 @@ class RiskGridVisualizer:
         else:
             init_norm = mcolors.Normalize(vmin=0, vmax=1)
         sm = plt.cm.ScalarMappable(cmap='jet', norm=init_norm)
-        cbar = fig.colorbar(sm, ax=ax, label='Risk', shrink=0.8)
+        fig.tight_layout()
+        cbar = _add_colorbar(fig, ax, sm)
 
         def update(frame_idx):
             # 1. Advance simulation state
@@ -229,6 +230,17 @@ class RiskGridVisualizer:
         ax.add_patch(rect)
 
 
+def _add_colorbar(fig, ax, sm, height_ratio: float = 0.75, width: float = 0.02, pad: float = 0.02):
+    """Add a shorter colorbar that doesn't overlap the title area."""
+    cbar = fig.colorbar(sm, ax=ax, label='Risk')
+    pos = ax.get_position()
+    cbar_height = pos.height * height_ratio
+    cbar_x = pos.x1 + pad
+    cbar_y = pos.y0 + (pos.height - cbar_height) / 2.0
+    cbar.ax.set_position([cbar_x, cbar_y, width, cbar_height])
+    return cbar
+
+
 def render_static_risk_map(risk_grid: RiskGrid, save_path: str,
                            resolution: tuple[int, int] = (1024, 1024),
                            dpi: int = 150,
@@ -268,8 +280,8 @@ def render_static_risk_map(risk_grid: RiskGrid, save_path: str,
     ax.grid(True, alpha=0.15)
 
     sm = plt.cm.ScalarMappable(cmap='jet', norm=norm)
-    fig.colorbar(sm, ax=ax, label='Risk', shrink=0.8)
     fig.tight_layout()
+    _add_colorbar(fig, ax, sm)
     fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
     plt.close(fig)
     return save_path
@@ -307,8 +319,8 @@ def render_risk_map_with_actors(risk_grid: RiskGrid, world: World, bridge: Simul
     vmax = vmax if vmax is not None else risk_grid.highest_risk
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
     sm = plt.cm.ScalarMappable(cmap='jet', norm=norm)
-    fig.colorbar(sm, ax=ax, label='Risk', shrink=0.8)
     fig.tight_layout()
+    _add_colorbar(fig, ax, sm)
     fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
     plt.close(fig)
     return save_path
@@ -450,7 +462,7 @@ class DatasetVideoComposer:
 
         # Draw a simple vertical scale bar on the right
         bar_w = max(8, width // 30)
-        bar_height = int(height * 0.8)
+        bar_height = int(height * 0.65)
         bar_x0 = width - bar_w - 4
         bar_y0 = int((height - bar_height) / 2)
         bar_y1 = bar_y0 + bar_height

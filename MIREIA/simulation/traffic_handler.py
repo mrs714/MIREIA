@@ -33,11 +33,29 @@ class TrafficHandler:
         if self.synchronous_mode:
             self.traffic_manager.set_synchronous_mode(True)
 
+        self._reset_traffic_manager_defaults()
+
         # Bookkeeping for cleanup
         self.ego_vehicle: carla.Actor = None
         self._vehicle_ids: list[int] = []
         self._walker_ids: list[dict] = []    # [{"id": int, "con": int}, ...]
         self._all_walker_actor_ids: list[int] = []  # interleaved [controller, walker, ...]
+
+    def _reset_traffic_manager_defaults(self):
+        """Reset Traffic Manager settings to avoid stale state across scenarios."""
+        tm = self.traffic_manager
+        defaults = [
+            ("set_synchronous_mode", [self.synchronous_mode]),
+            ("set_percentage_ignore_lights", [0.0]),
+            ("set_percentage_ignore_signs", [0.0]),
+            ("set_percentage_ignore_vehicles", [0.0]),
+            ("set_percentage_speed_difference", [0.0]),
+            ("set_hybrid_physics_mode", [False]),
+        ]
+        for name, args in defaults:
+            fn = getattr(tm, name, None)
+            if fn is not None:
+                fn(*args)
 
     # -----------------------------------------------------------------
     #  EGO VEHICLE
@@ -264,6 +282,12 @@ class TrafficHandler:
         if self.ego_vehicle is not None and self.ego_vehicle.is_alive:
             self.ego_vehicle.destroy()
             print("Destroyed ego vehicle.")
+
+        # Allow Traffic Manager/world to process destruction
+        if self.synchronous_mode:
+            self.world.tick()
+        else:
+            self.world.wait_for_tick()
 
         # Reset bookkeeping
         self.ego_vehicle = None
