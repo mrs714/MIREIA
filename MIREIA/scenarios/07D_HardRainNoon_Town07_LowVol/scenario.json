@@ -5,9 +5,9 @@
     "weather": "HardRainNoon",
     "ego_blueprint": "vehicle.carlamotors.carlacola",
     "ego_camera_position": [
+        2.2,
         0.0,
-        0.0,
-        1.5
+        1.9
     ],
     "ego_spawn_index": null,
     "ego_autopilot": true,

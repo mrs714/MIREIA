@@ -5,9 +5,9 @@
     "weather": "CloudyNoon",
     "ego_blueprint": "vehicle.audi.etron",
     "ego_camera_position": [
+        0.65,
         0.0,
-        0.0,
-        1.5
+        1.4
     ],
     "ego_spawn_index": null,
     "ego_autopilot": true,
