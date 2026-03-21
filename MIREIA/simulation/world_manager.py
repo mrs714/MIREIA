@@ -386,6 +386,7 @@ class WorldManager:
                       ego_resolution: tuple[int, int] = (512, 512),
                       map_resolution: tuple[int, int] = (100, 100),
                       enable_map_camera: bool = True,
+                      ego_camera_fov: float = 110.0,
                       map_fov: float = 90.0,
                       ego_camera_position: tuple[float, float, float] | None = None,
                       align_risk_rotation: bool = True) -> SensorManager:
@@ -422,6 +423,7 @@ class WorldManager:
             map_resolution=map_resolution,
             enable_map_camera=enable_map_camera,
             ego_camera_position=ego_camera_position,
+            ego_camera_fov=ego_camera_fov,
             map_center=map_center,
             map_size=map_size,
             map_fov=map_fov,

@@ -176,10 +176,10 @@ def generate_mireia_dataset(target_count: int = 54) -> list[Scenario]:
     ]
 
     ego_camera_positions = {
-        'vehicle.lincoln.mkz_2020': (0.0, 0.0, 1.5),
-        'vehicle.tesla.model3': (0.0, 0.0, 1.5),
-        'vehicle.audi.etron': (0.0, 0.0, 1.5),
-        'vehicle.carlamotors.carlacola': (0.0, 0.0, 1.5),
+        'vehicle.lincoln.mkz_2020': (0.8, 0.0, 1.3),
+        'vehicle.tesla.model3': (0.8, 0.0, 1.3),
+        'vehicle.audi.etron': (0.65, 0.0, 1.4),
+        'vehicle.carlamotors.carlacola': (2.2, 0.0, 1.9),
     }
 
     # Towns 01 through 07

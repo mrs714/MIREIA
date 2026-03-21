@@ -13,6 +13,7 @@ class SensorManager:
                  save_dir: str, ego_resolution=(800, 600), map_resolution=(2000, 2000),
                  enable_map_camera: bool = True,
                  ego_camera_position: tuple[float, float, float] | None = None,
+                 ego_camera_fov: float = 110.0,
                  map_center: tuple[float, float] | None = None,
                  map_size: float | None = None,
                  map_fov: float = 90.0,
@@ -32,7 +33,7 @@ class SensorManager:
         self.__map_rotation_yaw = map_rotation_yaw
         self.__map_rotation_roll = map_rotation_roll
         self.__map_camera_enabled = enable_map_camera
-        self.__setup_ego_camera(ego_resolution, ego_camera_position)
+        self.__setup_ego_camera(ego_resolution, ego_camera_position, ego_camera_fov)
         if self.__map_camera_enabled:
             if map_center is None:
                 self.__map_center = self.__get_map_center()
@@ -63,10 +64,12 @@ class SensorManager:
         center_y = (max(y_coords) + min(y_coords)) / 2
         return carla.Location(x=center_x, y=center_y, z=0)
     
-    def __setup_ego_camera(self, ego_resolution, ego_camera_position: tuple[float, float, float] | None):
+    def __setup_ego_camera(self, ego_resolution, ego_camera_position: tuple[float, float, float] | None,
+                           ego_camera_fov: float):
         blueprint = self.__world.get_blueprint_library().find('sensor.camera.rgb')
         blueprint.set_attribute('image_size_x', str(ego_resolution[0]))
         blueprint.set_attribute('image_size_y', str(ego_resolution[1]))
+        blueprint.set_attribute('fov', str(ego_camera_fov))
         if ego_camera_position is None:
             ego_camera_position = (0.0, 0.0, 1.5)
         camera_init_trans = carla.Transform(
