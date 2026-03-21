@@ -12,6 +12,7 @@ class SensorManager:
     def __init__(self, world: carla.World, map: carla.Map, ego_vehicle: carla.Actor,
                  save_dir: str, ego_resolution=(800, 600), map_resolution=(2000, 2000),
                  enable_map_camera: bool = True,
+                 ego_camera_position: tuple[float, float, float] | None = None,
                  map_center: tuple[float, float] | None = None,
                  map_size: float | None = None,
                  map_fov: float = 90.0,
@@ -31,7 +32,7 @@ class SensorManager:
         self.__map_rotation_yaw = map_rotation_yaw
         self.__map_rotation_roll = map_rotation_roll
         self.__map_camera_enabled = enable_map_camera
-        self.__setup_ego_camera(ego_resolution)
+        self.__setup_ego_camera(ego_resolution, ego_camera_position)
         if self.__map_camera_enabled:
             if map_center is None:
                 self.__map_center = self.__get_map_center()
@@ -62,11 +63,15 @@ class SensorManager:
         center_y = (max(y_coords) + min(y_coords)) / 2
         return carla.Location(x=center_x, y=center_y, z=0)
     
-    def __setup_ego_camera(self, ego_resolution):
+    def __setup_ego_camera(self, ego_resolution, ego_camera_position: tuple[float, float, float] | None):
         blueprint = self.__world.get_blueprint_library().find('sensor.camera.rgb')
         blueprint.set_attribute('image_size_x', str(ego_resolution[0]))
         blueprint.set_attribute('image_size_y', str(ego_resolution[1]))
-        camera_init_trans = carla.Transform(carla.Location(z=1.5))
+        if ego_camera_position is None:
+            ego_camera_position = (0.0, 0.0, 1.5)
+        camera_init_trans = carla.Transform(
+            carla.Location(x=ego_camera_position[0], y=ego_camera_position[1], z=ego_camera_position[2])
+        )
         self.__ego_camera = self.__world.spawn_actor(blueprint, camera_init_trans, attach_to=self.__ego_vehicle)
 
         self.__ego_camera.enable_postprocess_effects = True
