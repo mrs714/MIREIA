@@ -20,6 +20,7 @@ MIREIA/.env
 # Ignore per-scenario datasets
 MIREIA/scenarios/**/dataset/
 MIREIA/scenarios/**/dataset.jsonl
+MIREIA/scenarios/**/*.mp4
 
 
 # 5. Allow certain file types anywhere
