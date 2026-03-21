@@ -1,0 +1,20 @@
+{
+    "name": "11B_WetCloudySunset_Town03_LowVol",
+    "description": "Low density traffic, safe AI, driving vehicle.tesla.model3.",
+    "map_name": "Town03",
+    "weather": "WetCloudySunset",
+    "ego_blueprint": "vehicle.tesla.model3",
+    "ego_camera_position": [
+        0.8,
+        0.0,
+        1.3
+    ],
+    "ego_spawn_index": null,
+    "ego_autopilot": true,
+    "n_vehicles": 40,
+    "n_pedestrians": 20,
+    "pct_running": 0.0,
+    "pct_crossing": 5.0,
+    "safe_vehicles": true,
+    "seed": 42
+}
