@@ -1,0 +1,20 @@
+{
+    "name": "14A_HardRainSunset_Town06_HighVol",
+    "description": "High density traffic, aggressive AI, driving vehicle.lincoln.mkz_2020.",
+    "map_name": "Town06",
+    "weather": "HardRainSunset",
+    "ego_blueprint": "vehicle.lincoln.mkz_2020",
+    "ego_camera_position": [
+        0.0,
+        0.0,
+        1.5
+    ],
+    "ego_spawn_index": null,
+    "ego_autopilot": true,
+    "n_vehicles": 80,
+    "n_pedestrians": 50,
+    "pct_running": 15.0,
+    "pct_crossing": 10.0,
+    "safe_vehicles": false,
+    "seed": 42
+}

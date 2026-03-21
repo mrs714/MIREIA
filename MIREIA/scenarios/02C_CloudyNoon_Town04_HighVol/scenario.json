@@ -1,0 +1,20 @@
+{
+    "name": "02C_CloudyNoon_Town04_HighVol",
+    "description": "High density traffic, aggressive AI, driving vehicle.audi.etron.",
+    "map_name": "Town04",
+    "weather": "CloudyNoon",
+    "ego_blueprint": "vehicle.audi.etron",
+    "ego_camera_position": [
+        0.0,
+        0.0,
+        1.5
+    ],
+    "ego_spawn_index": null,
+    "ego_autopilot": true,
+    "n_vehicles": 80,
+    "n_pedestrians": 50,
+    "pct_running": 15.0,
+    "pct_crossing": 10.0,
+    "safe_vehicles": false,
+    "seed": 42
+}

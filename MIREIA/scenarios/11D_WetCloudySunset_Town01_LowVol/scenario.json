@@ -1,0 +1,20 @@
+{
+    "name": "11D_WetCloudySunset_Town01_LowVol",
+    "description": "Low density traffic, safe AI, driving a heavy truck.",
+    "map_name": "Town01",
+    "weather": "WetCloudySunset",
+    "ego_blueprint": "vehicle.carlamotors.carlacola",
+    "ego_camera_position": [
+        0.0,
+        0.0,
+        1.5
+    ],
+    "ego_spawn_index": null,
+    "ego_autopilot": true,
+    "n_vehicles": 40,
+    "n_pedestrians": 20,
+    "pct_running": 0.0,
+    "pct_crossing": 5.0,
+    "safe_vehicles": true,
+    "seed": 42
+}
