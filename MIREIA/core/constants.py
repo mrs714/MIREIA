@@ -1,6 +1,8 @@
 # Weights (Mass, Friction values)
 
 GRAVITY = 9.81  # m/s^2
+# Kinetic Severity
+KINETIC_LOG_GAIN = 0.1  # kappa: logarithmic speed scaling for risk
 # Environmental Severity
 BETA_VIS = 1.0        # Penalty for overdriving visibility
 MIN_FRICTION = 0.1    # Clamp for mu

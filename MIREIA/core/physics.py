@@ -21,6 +21,7 @@ class RiskOracle:
             # Environmental Severity
             'beta_vis': BETA_VIS,        # Penalty for overdriving visibility
             'min_friction': MIN_FRICTION,    # Clamp for mu
+            'kinetic_kappa': KINETIC_LOG_GAIN,  # Log-speed scaling for kinetic severity
             
             # Dynamic Risk (Gaussian Shape)
             'reaction_time': REACTION_TIME,   # Human perception-reaction time (seconds)
@@ -63,12 +64,9 @@ class RiskOracle:
         dynamic_obstacles: list[DynamicObstacleKinematics] = bridge.get_dynamic_obstacles()
         env_state: EnvironmentState = bridge.get_environment_state()
 
-        mu = max(env_state.mu, self.params['min_friction'])
-        vis = max(env_state.visibility, MIN_VISIBILITY)
         v_ego = ego_kinematics.v
-        
-        # 1. Environmental Scalar
-        phi_env = (1.0 / mu) * (1.0 + self.params['beta_vis'] * (v_ego / vis))
+        phi_env, mu = self._compute_environment_scalar(v_ego, env_state)
+        upsilon = self._compute_kinetic_scalar(v_ego)
 
         # 2. Dynamic Risk (vehicles)
         risk_dynamic = 0.0
@@ -86,7 +84,26 @@ class RiskOracle:
         # 3. Static Risk (road + static obstacles)
         risk_static_total = self._sample_baked_point(baked_static_risk, query_point[0], query_point[1])
         
-        return phi_env * (risk_static_total + risk_dynamic)
+        return upsilon * phi_env * (risk_static_total + risk_dynamic)
+
+    def _compute_environment_scalar(self, v_ego: float, env_state: EnvironmentState) -> tuple[float, float]:
+        """Environmental severity scalar Phi_env and clamped friction mu."""
+        mu = max(env_state.mu, self.params['min_friction'])
+        vis = max(env_state.visibility, MIN_VISIBILITY)
+        phi_env = (1.0 / mu) * (1.0 + self.params['beta_vis'] * (v_ego / vis))
+        return phi_env, mu
+
+    def _compute_kinetic_scalar(self, v_ego: float) -> float:
+        """Kinetic severity multiplier Upsilon(v_ego)."""
+        return 0.5 + self.params['kinetic_kappa'] * math.log(1.0 + v_ego)
+
+    @staticmethod
+    def _relative_velocity(ego_kinematics: EgoKinematics, obj) -> tuple[float, float, float]:
+        """Relative velocity components and magnitude between ego and an object."""
+        vx_rel = obj.vx - ego_kinematics.vx
+        vy_rel = obj.vy - ego_kinematics.vy
+        v_rel_mag = math.sqrt(vx_rel**2 + vy_rel**2)
+        return vx_rel, vy_rel, v_rel_mag
 
     def _compute_gaussian_at_point(self, point: tuple[float, float], obj, ego_kinematics: EgoKinematics, mu: float, amplitude_override: float = None):
         """Helper for single-point Gaussian math."""
@@ -97,9 +114,7 @@ class RiskOracle:
         if (dx*dx + dy*dy) > self.params["max_distance"] ** 2: return 0.0 # Optimization for points >N m away
 
         # Relative velocity
-        vx_rel = obj.vx - ego_kinematics.vx
-        vy_rel = obj.vy - ego_kinematics.vy
-        v_rel_mag = math.sqrt(vx_rel**2 + vy_rel**2)
+        _, _, v_rel_mag = self._relative_velocity(ego_kinematics, obj)
 
         # Rotation
         yaw_rad = math.radians(obj.heading)
@@ -108,13 +123,13 @@ class RiskOracle:
         y_local = dx * sin_yaw + dy * cos_yaw
 
         # Shape
-        sigma_x = (obj.length/2.0) + (self.params['reaction_time'] * v_rel_mag) + ((v_rel_mag**2) / (2 * mu * self.G)) + self.params['base_longitudinal_uncertainty'] # Base longitudinal uncertainty
+        sigma_x = (obj.length/2.0) + (self.params['reaction_time'] * v_rel_mag) + ((v_rel_mag**2) / (2 * mu * self.G)) + self.params['base_longitudinal_uncertainty']
         sigma_x = max(sigma_x, self.params['min_sigma_x'])
         
-        sigma_y = (obj.width/2.0) + self.params["base_lateral_uncertainty"] # Base lateral uncertainty
+        sigma_y = (obj.width/2.0) + self.params['base_lateral_uncertainty']
         sigma_y = max(sigma_y, self.params['min_sigma_y']) # Ensure a minimum spread even for small obstacles
 
-        exponent = -0.5 * ((x_local/sigma_x)**2 + (y_local/sigma_y)**2) # Gaussian formula; higher exponent = closer to center = more risk
+        exponent = -0.5 * ((x_local/sigma_x)**2 + (y_local/sigma_y)**2)
         if exponent < -20: return 0.0
 
         amp = amplitude_override if amplitude_override is not None else self.params['amplitude_gain']
@@ -258,12 +273,11 @@ class RiskOracle:
         env_state: EnvironmentState = bridge.get_environment_state()
 
         # 1. Environment Scalar
-        mu = max(env_state.mu, self.params['min_friction'])
-        vis = max(env_state.visibility, MIN_VISIBILITY)
-        phi = (1.0 / mu) * (1.0 + self.params['beta_vis'] * (ego_kinematics.v / vis))
+        phi_env, mu = self._compute_environment_scalar(ego_kinematics.v, env_state)
+        upsilon = self._compute_kinetic_scalar(ego_kinematics.v)
         
         # 2. Dynamic Risk (Vectorized over X, Y) — vehicles + pedestrians
-        risk_dyn = np.zeros_like(X)
+        risk_dynamic = np.zeros_like(X)
         half = grid.size / 2.0
         skip_margin = 70.0  # skip obstacles more than 70m from grid edge
 
@@ -281,11 +295,8 @@ class RiskOracle:
             dx = X - obj.x
             dy = Y - obj.y
             
-            # Relative Vel
-            ego_heading_rad = math.radians(ego_kinematics.heading)
-            vx_rel = obj.vx - ego_kinematics.v * math.cos(ego_heading_rad)
-            vy_rel = obj.vy - ego_kinematics.v * math.sin(ego_heading_rad)
-            v_rel_mag = np.sqrt(vx_rel**2 + vy_rel**2)
+            # Relative Vel (scalar magnitude for sigma)
+            _, _, v_rel_mag = self._relative_velocity(ego_kinematics, obj)
             
             # Rotation
             angle = -math.radians(obj.heading)
@@ -293,18 +304,18 @@ class RiskOracle:
             y_rot = dx * math.sin(angle) + dy * math.cos(angle)
             
             # Sigma Calculation (Same physics as single-point)
-            sigma_x = (obj.length/2.0) + (self.params['reaction_time'] * v_rel_mag) + (v_rel_mag**2 / (2*mu*self.G))
+            sigma_x = (obj.length/2.0) + (self.params['reaction_time'] * v_rel_mag) + (v_rel_mag**2 / (2*mu*self.G)) + self.params['base_longitudinal_uncertainty']
             sigma_x = np.maximum(sigma_x, self.params['min_sigma_x'])
             
-            sigma_y = (obj.width/2.0) + 0.5
+            sigma_y = (obj.width/2.0) + self.params['base_lateral_uncertainty']
             sigma_y = np.maximum(sigma_y, self.params['min_sigma_y'])
             
             # Gaussian
             exponent = -0.5 * ( (x_rot**2 / sigma_x**2) + (y_rot**2 / sigma_y**2) )
-            risk_dyn += amp_gain * np.exp(exponent)
+            risk_dynamic += amp_gain * np.exp(exponent)
             
         # 3. Static Risk (road + static obstacles)
         risk_static_total = self._sample_baked_grid(baked_static_risk, X, Y)
         
-        risk_values = phi * (risk_static_total + risk_dyn)
+        risk_values = upsilon * phi_env * (risk_static_total + risk_dynamic)
         return RiskGrid.from_grid_and_risk(grid, risk_values)

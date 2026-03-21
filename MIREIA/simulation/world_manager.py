@@ -234,7 +234,7 @@ class WorldManager:
             print(f"Connecting to CARLA at {Config.CARLA_HOST}:{Config.CARLA_PORT}...")
 
         self.client = carla.Client(Config.CARLA_HOST, Config.CARLA_PORT)
-        self.client.set_timeout(10.0)
+        self.client.set_timeout(15.0)
         self.world = self.client.get_world()
 
         if self.verbose:

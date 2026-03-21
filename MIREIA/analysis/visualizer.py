@@ -66,6 +66,11 @@ class RiskGridVisualizer:
         # Ego vehicle (green box with heading arrow)
         self._draw_vehicle_box(ax, ego.x, ego.y, ego.length, ego.width, ego.heading,
                                edgecolor='#00FF00', facecolor='black', linewidth=2, label='Ego')
+        # Ego safety radius (red circle outline)
+        ego_radius_m = 10
+        ego_circle = patches.Circle((ego.x, ego.y), radius=ego_radius_m,
+                        fill=False, edgecolor='red', linewidth=2, alpha=0.9)
+        ax.add_patch(ego_circle)
         ego_heading_rad = math.radians(ego.heading)
         arrow_len = max(ego.v * 0.5, ego.length * 0.6)
         ax.arrow(ego.x, ego.y,
