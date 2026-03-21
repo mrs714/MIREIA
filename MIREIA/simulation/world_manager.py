@@ -7,165 +7,12 @@ import carla
 from MIREIA.simulation.bridge import SimulationBridge
 from MIREIA.simulation.sensors import SensorManager
 from MIREIA.simulation.traffic_handler import TrafficHandler
+from MIREIA.simulation.scenarios import Scenario
 from MIREIA.data_collection.recorder import DatasetLogger
 from MIREIA.core.physics import RiskOracle
 from MIREIA.analysis.plotter import Grid, RiskGrid
 from MIREIA.analysis.visualizer import render_risk_map_with_actors
 from MIREIA.config import Config
-
-
-# ── Predefined CARLA weather presets ────────────────────────────────
-_WEATHER_PRESETS: dict[str, carla.WeatherParameters] = {
-    "ClearNoon":            carla.WeatherParameters.ClearNoon,
-    "CloudyNoon":           carla.WeatherParameters.CloudyNoon,
-    "WetNoon":              carla.WeatherParameters.WetNoon,
-    "WetCloudyNoon":        carla.WeatherParameters.WetCloudyNoon,
-    "SoftRainNoon":         carla.WeatherParameters.SoftRainNoon,
-    "MidRainyNoon":         carla.WeatherParameters.MidRainyNoon,
-    "HardRainNoon":         carla.WeatherParameters.HardRainNoon,
-    "ClearSunset":          carla.WeatherParameters.ClearSunset,
-    "CloudySunset":         carla.WeatherParameters.CloudySunset,
-    "WetSunset":            carla.WeatherParameters.WetSunset,
-    "WetCloudySunset":      carla.WeatherParameters.WetCloudySunset,
-    "SoftRainSunset":       carla.WeatherParameters.SoftRainSunset,
-    "MidRainSunset":        carla.WeatherParameters.MidRainSunset,
-    "HardRainSunset":       carla.WeatherParameters.HardRainSunset,
-}
-
-
-class Scenario:
-    """
-    A Scenario holds every parameter needed to reproduce an identical
-    simulation: map, weather, ego vehicle config, traffic density, seed,
-    and a human-readable description of the situation being tested.
-
-    It does not contain any live CARLA objects — it is a pure data container
-    that can be serialized to / deserialized from a JSON file.
-
-    Each scenario owns a folder under ``Config.PATH_TO_SCENARIOS/<name>/``
-    where derived artefacts are stored (pre-baked static risk map, routes, …).
-    The folder (and its JSON file) are created on the first call to
-    :meth:`save`.
-    """
-
-    def __init__(self, name: str,
-                 map_name: str = 'Town03',
-                 description: str = '',
-                 # Weather — preset name OR dict of individual parameters
-                 weather: str | dict = 'ClearNoon',
-                 # Ego vehicle
-                 ego_blueprint: str = 'vehicle.lincoln.mkz_2020',
-                 ego_spawn_index: int | None = None,
-                 ego_autopilot: bool = True,
-                 # Traffic
-                 n_vehicles: int = 30,
-                 n_pedestrians: int = 20,
-                 pct_running: float = 0.0,
-                 pct_crossing: float = 0.0,
-                 safe_vehicles: bool = True,
-                 # Reproducibility
-                 seed: int = 42):
-        self.name = name
-        self.description = description
-        self.map_name = map_name
-        # Weather
-        self.weather = weather
-        # Ego
-        self.ego_blueprint = ego_blueprint
-        self.ego_spawn_index = ego_spawn_index
-        self.ego_autopilot = ego_autopilot
-        # Traffic
-        self.n_vehicles = n_vehicles
-        self.n_pedestrians = n_pedestrians
-        self.pct_running = pct_running
-        self.pct_crossing = pct_crossing
-        self.safe_vehicles = safe_vehicles
-        # Seed
-        self.seed = seed
-
-    # ── Paths ───────────────────────────────────────────────────────
-    @property
-    def folder_path(self) -> str:
-        """Absolute path to this scenario's dedicated folder."""
-        return os.path.join(Config.PATH_TO_SCENARIOS, self.name)
-
-    @property
-    def json_path(self) -> str:
-        """Path to the scenario definition JSON inside its folder."""
-        return os.path.join(self.folder_path, "scenario.json")
-
-    @property
-    def baked_risk_path(self) -> str:
-        """Path to the pre-baked static risk .npy file."""
-        return os.path.join(self.folder_path, "baked_static_risk.npy")
-
-    # ── Persistence ─────────────────────────────────────────────────
-    def to_dict(self) -> dict:
-        """Return a JSON-serializable dict of all scenario parameters."""
-        return {
-            "name":             self.name,
-            "description":      self.description,
-            "map_name":         self.map_name,
-            "weather":          self.weather,
-            "ego_blueprint":    self.ego_blueprint,
-            "ego_spawn_index":  self.ego_spawn_index,
-            "ego_autopilot":    self.ego_autopilot,
-            "n_vehicles":       self.n_vehicles,
-            "n_pedestrians":    self.n_pedestrians,
-            "pct_running":      self.pct_running,
-            "pct_crossing":     self.pct_crossing,
-            "safe_vehicles":    self.safe_vehicles,
-            "seed":             self.seed,
-        }
-
-    def save(self):
-        """
-        Persist the scenario to ``<folder>/scenario.json``.
-        Creates the folder if it does not exist yet.
-        """
-        os.makedirs(self.folder_path, exist_ok=True)
-        with open(self.json_path, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f, indent=4)
-
-    @classmethod
-    def load(cls, name: str) -> "Scenario":
-        """
-        Load a scenario from its JSON file.
-
-        :param name: Scenario name (must match a folder under PATH_TO_SCENARIOS).
-        :returns: A fully-initialized Scenario instance.
-        """
-        json_path = os.path.join(Config.PATH_TO_SCENARIOS, name, "scenario.json")
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return cls(**data)
-
-    def get_weather_parameters(self) -> carla.WeatherParameters:
-        """
-        Convert the stored weather specification into a ``carla.WeatherParameters`` object.
-
-        If ``self.weather`` is a string it is looked up in the built-in preset
-        table.  If it is a dict, each key is passed to the ``WeatherParameters``
-        constructor (e.g. ``{"cloudiness": 80, "precipitation": 50}``).
-        """
-        if isinstance(self.weather, str):
-            if self.weather not in _WEATHER_PRESETS:
-                raise ValueError(
-                    f"Unknown weather preset '{self.weather}'. "
-                    f"Available: {list(_WEATHER_PRESETS.keys())}"
-                )
-            return _WEATHER_PRESETS[self.weather]
-        elif isinstance(self.weather, dict):
-            return carla.WeatherParameters(**self.weather)
-        else:
-            raise TypeError(f"weather must be str or dict, got {type(self.weather)}")
-
-    def __repr__(self):
-        return (
-            f"Scenario('{self.name}', map='{self.map_name}', desc='{self.description[:50] + '...' if len(self.description) > 50 else self.description}', "
-            f"weather='{self.weather}', vehicles={self.n_vehicles}, "
-            f"pedestrians={self.n_pedestrians}, seed={self.seed})"
-        )
 
 
 class WorldManager:
@@ -520,6 +367,7 @@ class WorldManager:
                       map_resolution: tuple[int, int] = (100, 100),
                       enable_map_camera: bool = True,
                       map_fov: float = 90.0,
+                      ego_camera_position: tuple[float, float, float] | None = None,
                       align_risk_rotation: bool = True) -> SensorManager:
         """
         Attach cameras to the ego vehicle.  Call after :meth:`load_scenario`.
@@ -544,12 +392,16 @@ class WorldManager:
         map_rotation_yaw = -90.0 if align_risk_rotation else 0.0
         map_rotation_roll = 0.0
 
+        if ego_camera_position is None and self.scenario is not None:
+            ego_camera_position = self.scenario.ego_camera_position
+
         self.sensor_manager = SensorManager(
             self.world, world_map, self.ego_vehicle,
             save_dir=save_dir,
             ego_resolution=ego_resolution,
             map_resolution=map_resolution,
             enable_map_camera=enable_map_camera,
+            ego_camera_position=ego_camera_position,
             map_center=map_center,
             map_size=map_size,
             map_fov=map_fov,
