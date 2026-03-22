@@ -175,15 +175,22 @@ class ScenarioSequenceDataset(Dataset):
 def create_e2e_dataloaders(
 	seq_len: int,
 	batch_size: int = 4,
-	num_workers: int = 0,
+	num_workers: Optional[int] = None,
 	shuffle: bool = True,
 	pin_memory: Optional[bool] = None,
+	prefetch_factor: int = 2,
+	persistent_workers: Optional[bool] = None,
 	transform: Optional[Callable] = None,
 	scenarios_root: Optional[str] = None,
 	**dataset_kwargs,
 ) -> tuple[DataLoader, DataLoader]:
+	if num_workers is None:
+		cpu_count = os.cpu_count() or 0
+		num_workers = min(8, max(0, cpu_count - 1))
 	if pin_memory is None:
 		pin_memory = torch.cuda.is_available()
+	if persistent_workers is None:
+		persistent_workers = num_workers > 0
 
 	train_dataset = ScenarioSequenceDataset(
 		seq_len=seq_len,
@@ -200,18 +207,23 @@ def create_e2e_dataloaders(
 		**dataset_kwargs,
 	)
 
+	loader_kwargs = {
+		"batch_size": batch_size,
+		"num_workers": num_workers,
+		"pin_memory": pin_memory,
+	}
+	if num_workers > 0:
+		loader_kwargs["prefetch_factor"] = prefetch_factor
+		loader_kwargs["persistent_workers"] = persistent_workers
+
 	train_loader = DataLoader(
 		train_dataset,
-		batch_size=batch_size,
 		shuffle=shuffle,
-		num_workers=num_workers,
-		pin_memory=pin_memory,
+		**loader_kwargs,
 	)
 	val_loader = DataLoader(
 		val_dataset,
-		batch_size=batch_size,
 		shuffle=False,
-		num_workers=num_workers,
-		pin_memory=pin_memory,
+		**loader_kwargs,
 	)
 	return train_loader, val_loader
