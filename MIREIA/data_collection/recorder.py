@@ -57,7 +57,13 @@ class DatasetLogger:
         if *False* the file is truncated on open.
     """
 
-    def __init__(self, output_path: str, append: bool = True, delete_existing: bool = False):
+    def __init__(
+        self,
+        output_path: str,
+        append: bool = True,
+        delete_existing: bool = False,
+        static_meta: dict | None = None,
+    ):
         self.output_path = output_path
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
@@ -68,6 +74,7 @@ class DatasetLogger:
         mode = "a" if append else "w"
         self._file: TextIO = open(output_path, mode, encoding="utf-8")
         self._frame_count: int = 0
+        self._static_meta = static_meta or {}
 
     # ── Public API ──────────────────────────────────────────────────
     def log_frame(
@@ -83,6 +90,7 @@ class DatasetLogger:
         timestamp: float | None = None,
         risk_oracle: RiskOracle | None = None,
         baked_static_risk: RiskGrid | None = None,
+        extra_fields: dict | None = None,
     ) -> dict:
         """
         Build a frame record from live simulation state and write it as a
@@ -136,6 +144,11 @@ class DatasetLogger:
             risk_map_image_path,
             timestamp,
         )
+
+        if self._static_meta:
+            record.setdefault("meta", {}).update(self._static_meta)
+        if extra_fields:
+            record.update(extra_fields)
 
         self._write_line(record)
         self._frame_count += 1

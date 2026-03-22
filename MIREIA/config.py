@@ -15,3 +15,7 @@ class Config:
         'PATH_TO_SCENARIOS',
         os.path.join(_MIREIA_DIR, 'scenarios'),
     )
+    PATH_TO_TRIALS: str = os.getenv(
+        'PATH_TO_TRIALS',
+        os.path.join(_MIREIA_DIR, 'trials'),
+    )

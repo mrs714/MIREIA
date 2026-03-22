@@ -1,4 +1,5 @@
 # Defines Start/End points for standard scenarios
+import json
 import matplotlib.pyplot as plt
 import numpy as np
 from MIREIA.simulation.bridge import WaypointState, WaypointStateCollection
@@ -122,5 +123,48 @@ def create_route_from_waypoints(waypoint_collection: WaypointStateCollection) ->
 
     print(f"Route created with {len(route.waypoints)} waypoint(s).")
     return route
+
+
+def route_to_dict(route: Route) -> dict:
+    waypoint_ids = [wp.id for wp in route.waypoints]
+    return {
+        "route_id": route.route_id,
+        "waypoint_ids": waypoint_ids,
+    }
+
+
+def save_route_json(route: Route, output_path: str) -> None:
+    data = route_to_dict(route)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+def load_route_json(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def build_route_from_waypoint_ids(
+    waypoint_collection: WaypointStateCollection,
+    waypoint_ids: list[int],
+    route_id: str = "loaded",
+) -> Route:
+    waypoint_map = {wp.id: wp for wp in waypoint_collection.waypoints}
+    route = Route(route_id=route_id)
+    route.waypoints = [waypoint_map[wp_id] for wp_id in waypoint_ids if wp_id in waypoint_map]
+    if route.waypoints:
+        route.start = route.waypoints[0]
+        route.end = route.waypoints[-1]
+    return route
+
+
+def load_route_from_json(
+    path: str,
+    waypoint_collection: WaypointStateCollection,
+) -> Route:
+    data = load_route_json(path)
+    waypoint_ids = data.get("waypoint_ids", [])
+    route_id = data.get("route_id", "loaded")
+    return build_route_from_waypoint_ids(waypoint_collection, waypoint_ids, route_id=route_id)
 
 

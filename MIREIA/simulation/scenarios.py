@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import carla
 
 from MIREIA.config import Config
@@ -163,6 +164,141 @@ class Scenario:
         )
 
 
+class Trial:
+    """
+    A Trial is similar to a Scenario but binds a predetermined route and
+    supports multiple runs (datasets) under the same trial definition.
+
+    Each trial owns a folder under ``Config.PATH_TO_TRIALS/<name>/`` with
+    ``trial.json`` and ``route.json`` plus per-run outputs.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        map_name: str = "Town03",
+        description: str = "",
+        weather: str | dict = "ClearNoon",
+        ego_blueprint: str = "vehicle.lincoln.mkz_2020",
+        ego_camera_position: tuple[float, float, float] | list[float] | None = None,
+        ego_spawn_index: int | None = None,
+        ego_autopilot: bool = True,
+        n_vehicles: int = 0,
+        n_pedestrians: int = 0,
+        pct_running: float = 0.0,
+        pct_crossing: float = 0.0,
+        safe_vehicles: bool = True,
+        seed: int = 42,
+        route_filename: str = "route.json",
+    ):
+        self.name = name
+        self.description = description
+        self.map_name = map_name
+        self.weather = weather
+        self.ego_blueprint = ego_blueprint
+        if isinstance(ego_camera_position, list):
+            ego_camera_position = tuple(ego_camera_position)
+        self.ego_camera_position = ego_camera_position
+        self.ego_spawn_index = ego_spawn_index
+        self.ego_autopilot = ego_autopilot
+        self.n_vehicles = n_vehicles
+        self.n_pedestrians = n_pedestrians
+        self.pct_running = pct_running
+        self.pct_crossing = pct_crossing
+        self.safe_vehicles = safe_vehicles
+        self.seed = seed
+        self.route_filename = route_filename
+
+    @property
+    def folder_path(self) -> str:
+        return os.path.join(Config.PATH_TO_TRIALS, self.name)
+
+    @property
+    def json_path(self) -> str:
+        return os.path.join(self.folder_path, "trial.json")
+
+    @property
+    def route_path(self) -> str:
+        return os.path.join(self.folder_path, self.route_filename)
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "map_name": self.map_name,
+            "weather": self.weather,
+            "ego_blueprint": self.ego_blueprint,
+            "ego_camera_position": list(self.ego_camera_position) if self.ego_camera_position is not None else None,
+            "ego_spawn_index": self.ego_spawn_index,
+            "ego_autopilot": self.ego_autopilot,
+            "n_vehicles": self.n_vehicles,
+            "n_pedestrians": self.n_pedestrians,
+            "pct_running": self.pct_running,
+            "pct_crossing": self.pct_crossing,
+            "safe_vehicles": self.safe_vehicles,
+            "seed": self.seed,
+            "route_filename": self.route_filename,
+        }
+
+    def save(self):
+        os.makedirs(self.folder_path, exist_ok=True)
+        payload = self.to_dict()
+        if os.path.exists(self.json_path):
+            with open(self.json_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            runs = existing.get("runs", [])
+            payload["runs"] = runs
+        with open(self.json_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=4)
+
+    @classmethod
+    def load(cls, name: str) -> "Trial":
+        json_path = os.path.join(Config.PATH_TO_TRIALS, name, "trial.json")
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data.pop("runs", None)
+        return cls(**data)
+
+    def get_weather_parameters(self) -> carla.WeatherParameters:
+        if isinstance(self.weather, str):
+            if self.weather not in _WEATHER_PRESETS:
+                raise ValueError(
+                    f"Unknown weather preset '{self.weather}'. "
+                    f"Available: {list(_WEATHER_PRESETS.keys())}"
+                )
+            return _WEATHER_PRESETS[self.weather]
+        if isinstance(self.weather, dict):
+            return carla.WeatherParameters(**self.weather)
+        raise TypeError(f"weather must be str or dict, got {type(self.weather)}")
+
+    def __repr__(self):
+        return (
+            f"Trial('{self.name}', map='{self.map_name}', desc='{self.description[:50] + '...' if len(self.description) > 50 else self.description}', "
+            f"weather='{self.weather}', seed={self.seed})"
+        )
+
+    def create_run_folder(self, run_id: str | None = None) -> tuple[str, str]:
+        if run_id is None:
+            run_id = time.strftime("%Y%m%d_%H%M%S")
+        run_path = os.path.join(self.folder_path, "runs", run_id)
+        os.makedirs(run_path, exist_ok=True)
+        return run_id, run_path
+
+    def add_run_summary(self, run_id: str, summary: dict) -> None:
+        os.makedirs(self.folder_path, exist_ok=True)
+        payload = self.to_dict()
+        runs = []
+        if os.path.exists(self.json_path):
+            with open(self.json_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            runs = existing.get("runs", [])
+        summary = {"run_id": run_id, **summary}
+        runs.append(summary)
+        payload["runs"] = runs
+        with open(self.json_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=4)
+
+
 def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
     """Procedural generation of MIREIA scenarios."""
     weathers = list(_WEATHER_PRESETS.keys())
@@ -259,5 +395,6 @@ def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
 
 __all__ = [
     "Scenario",
+    "Trial",
     "generate_mireia_dataset",
 ]

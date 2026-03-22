@@ -361,8 +361,13 @@ class DatasetVideoComposer:
         if tile_size is None:
             raise RuntimeError("No image paths found in JSONL.")
 
+        gt_series = [rec.get("ground_truth_risk") for rec in records]
+        model_series = [rec.get("model_risk") for rec in records]
+        if all(v is None for v in model_series):
+            model_series = None
+
         for idx, record in enumerate(records):
-            frame = self._compose_frame(record, tile_size)
+            frame = self._compose_frame(record, tile_size, idx, gt_series, model_series)
             frame_path = frames_dir / f"frame_{idx:06d}.png"
             frame.save(frame_path)
 
@@ -400,14 +405,20 @@ class DatasetVideoComposer:
             return None
         return Image.open(img_path)
 
-    def _compose_frame(self, record: dict, tile_size: tuple[int, int]) -> Image.Image:
+    def _compose_frame(
+        self,
+        record: dict,
+        tile_size: tuple[int, int],
+        index: int,
+        gt_series: list[float | None],
+        model_series: list[float | None] | None,
+    ) -> Image.Image:
         tile_w, tile_h = tile_size
         canvas = Image.new("RGB", (tile_w * 2, tile_h * 2), self.background)
 
         dashcam = self._load_image(record.get("rgb_image_path", ""))
         risk = self._load_image(record.get("risk_map_image_path", ""))
         aerial = self._load_image(record.get("topdown_image_path", ""))
-        risk_value = record.get("ground_truth_risk", None)
 
         if dashcam is not None:
             canvas.paste(dashcam.resize((tile_w, tile_h)), (0, 0))
@@ -419,66 +430,66 @@ class DatasetVideoComposer:
             canvas.paste(aerial.resize((tile_w, tile_h)), (tile_w, tile_h))
             aerial.close()
 
-        if risk_value is not None:
-            risk_tile = self._render_risk_tile(risk_value, tile_w, tile_h)
-            if risk_tile is not None:
-                canvas.paste(risk_tile, (tile_w, 0))
+        risk_tile = self._render_risk_chart(gt_series, model_series, index, tile_w, tile_h)
+        if risk_tile is not None:
+            canvas.paste(risk_tile, (tile_w, 0))
 
         return canvas
 
-    def _render_risk_tile(self, risk_value: float, width: int, height: int) -> Image.Image | None:
-        try:
-            risk = float(risk_value)
-        except (TypeError, ValueError):
+    def _render_risk_chart(
+        self,
+        gt_series: list[float | None],
+        model_series: list[float | None] | None,
+        index: int,
+        width: int,
+        height: int,
+    ) -> Image.Image | None:
+        if not gt_series:
             return None
 
-        risk_display = max(0.0, min(10.0, risk))
-        risk_norm = risk_display / 10.0
-        r = int(255 * risk_norm)
-        g = int(255 * (1.0 - risk_norm))
-        b = 0
-        tile = Image.new("RGB", (width, height), (r, g, b))
-
+        tile = Image.new("RGB", (width, height), (15, 15, 15))
         draw = ImageDraw.Draw(tile)
-        font_size = max(10, int(min(width, height) * 0.13))
-        small_font_size = max(9, int(font_size * 0.5))
+
         try:
-            font = ImageFont.truetype("arial.ttf", font_size)
-            small_font = ImageFont.truetype("arial.ttf", small_font_size)
+            font = ImageFont.truetype("arial.ttf", max(10, width // 18))
+            small_font = ImageFont.truetype("arial.ttf", max(8, width // 24))
         except OSError:
             font = ImageFont.load_default()
             small_font = ImageFont.load_default()
 
-        text = f"Ground truth:\n{risk_display:.2f}"
-        text_w, text_h = self._measure_multiline(draw, text, font, spacing=4)
-        draw.multiline_text(
-            ((width - text_w) / 2, (height - text_h) / 2),
-            text,
-            fill=(0, 0, 0),
-            font=font,
-            align="center",
-            spacing=4,
-        )
+        series_gt = [v for v in gt_series if v is not None]
+        series_model = [v for v in (model_series or []) if v is not None]
+        if not series_gt and not series_model:
+            return tile
 
-        # Draw a simple vertical scale bar on the right
-        bar_w = max(8, width // 30)
-        bar_height = int(height * 0.65)
-        bar_x0 = width - bar_w - 4
-        bar_y0 = int((height - bar_height) / 2)
-        bar_y1 = bar_y0 + bar_height
-        for y in range(bar_y0, bar_y1):
-            t = 1.0 - (y - bar_y0) / max(1, (bar_y1 - bar_y0))
-            rr = int(255 * t)
-            gg = int(255 * (1.0 - t))
-            draw.line([(bar_x0, y), (bar_x0 + bar_w, y)], fill=(rr, gg, 0))
+        max_val = max(series_gt + series_model) if (series_gt or series_model) else 1.0
+        max_val = max(max_val, 1e-6)
 
-        top_label = "10"
-        bot_label = "0"
-        top_w, top_h = self._measure_multiline(draw, top_label, small_font)
-        bot_w, bot_h = self._measure_multiline(draw, bot_label, small_font)
-        draw.text((bar_x0 - top_w - 3, bar_y0 - top_h / 2), top_label, fill=(0, 0, 0), font=small_font)
-        draw.text((bar_x0 - bot_w - 3, bar_y1 - bot_h / 2), bot_label, fill=(0, 0, 0), font=small_font)
+        pad = 8
+        plot_w = width - 2 * pad
+        plot_h = height - 2 * pad
 
+        def _plot_series(values: list[float | None], color: tuple[int, int, int]):
+            points = []
+            for i, v in enumerate(values):
+                if v is None:
+                    continue
+                x = pad + int((i / max(1, len(values) - 1)) * plot_w)
+                y = pad + int((1.0 - (v / max_val)) * plot_h)
+                points.append((x, y))
+            if len(points) > 1:
+                draw.line(points, fill=color, width=2)
+
+        _plot_series(gt_series, (0, 200, 0))
+        if model_series is not None:
+            _plot_series(model_series, (255, 165, 0))
+
+        marker_x = pad + int((index / max(1, len(gt_series) - 1)) * plot_w)
+        draw.line([(marker_x, pad), (marker_x, pad + plot_h)], fill=(200, 200, 200), width=1)
+
+        title = "Risk (GT + Pred)" if model_series is not None else "Risk (GT)"
+        draw.text((pad, pad), title, fill=(220, 220, 220), font=font)
+        draw.text((pad, height - pad - 12), f"Max: {max_val:.2f}", fill=(180, 180, 180), font=small_font)
         return tile
 
     def _measure_multiline(self, draw: ImageDraw.ImageDraw, text: str,

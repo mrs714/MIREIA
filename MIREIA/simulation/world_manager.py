@@ -346,7 +346,9 @@ class WorldManager:
                          include_topdown: bool = False,
                          include_static_risk_image: bool = False,
                          static_risk_image_resolution: tuple[int, int] = (1024, 1024),
-                         static_risk_image_dpi: int = 150) -> DatasetLogger:
+                         static_risk_image_dpi: int = 150,
+                         jsonl_path: str | None = None,
+                         static_meta: dict | None = None) -> DatasetLogger:
         """
         Create a :class:`DatasetLogger` that writes frame data to a JSONL
         file inside the scenario's own folder
@@ -363,8 +365,8 @@ class WorldManager:
         if self.scenario is None:
             raise RuntimeError("No scenario loaded — call load_scenario first.")
 
-        jsonl_path = os.path.join(self.scenario.folder_path, "dataset.jsonl")
-        self.dataset_logger = DatasetLogger(jsonl_path, append=append)
+        jsonl_path = jsonl_path or os.path.join(self.scenario.folder_path, "dataset.jsonl")
+        self.dataset_logger = DatasetLogger(jsonl_path, append=append, static_meta=static_meta)
         self._record_topdown = include_topdown
         self._record_static_risk_image = include_static_risk_image
         self._static_risk_image_resolution = static_risk_image_resolution
@@ -436,7 +438,8 @@ class WorldManager:
     def tick(self, ground_truth_risk: float | None = None,
              rgb_image_path: str = "",
              topdown_image_path: str = "",
-             risk_map_image_path: str = "") -> dict | None:
+             risk_map_image_path: str = "",
+             extra_fields: dict | None = None) -> dict | None:
         """
         Advance the simulation by one step, update the bridge state,
         and — if recording is enabled — log the frame.
@@ -474,6 +477,7 @@ class WorldManager:
                 risk_map_image_path=risk_map_image_path,
                 risk_oracle=self.risk_oracle,
                 baked_static_risk=self.baked_static_risk,
+                extra_fields=extra_fields,
             )
         return record
 
