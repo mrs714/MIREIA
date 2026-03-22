@@ -63,6 +63,9 @@ class BaseSequenceDataset(Dataset):
         self.transform = transform or build_default_transform(image_size)
 
     def _build_target(self, window: Sequence[dict]) -> torch.Tensor:
+        if self.target_mode == "sequence":
+            values = [rec[self.risk_key] for rec in window]
+            return torch.tensor(values, dtype=torch.float32).unsqueeze(1)
         if self.target_mode == "mean":
             value = sum(rec[self.risk_key] for rec in window) / len(window)
         else:

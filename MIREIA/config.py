@@ -15,3 +15,6 @@ class Config:
         'PATH_TO_SCENARIOS',
         os.path.join(_MIREIA_DIR, 'scenarios'),
     )
+
+    # Reproducibility
+    RANDOM_SEED: int = int(os.getenv('SEED', 42))

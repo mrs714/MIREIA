@@ -38,6 +38,13 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 		exclude_names: Optional[Iterable[str]] = None,
 		town10hd_token: str = "Town10HD",
 		normalize_paths: bool = True,
+		subset_ratio: Optional[float] = None,
+		subset_seed: int = Config.RANDOM_SEED,
+		subset_mode: str = "first",
+		max_scenarios: Optional[int] = None,
+		window_subset_ratio: Optional[float] = None,
+		window_subset_seed: int = Config.RANDOM_SEED,
+		window_subset_mode: str = "random",
 	):
 		super().__init__(
 			seq_len=seq_len,
@@ -52,6 +59,13 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 		self.split = split
 		self.normalize_paths = normalize_paths
 		self.town10hd_token = town10hd_token
+		self.subset_ratio = subset_ratio
+		self.subset_seed = subset_seed
+		self.subset_mode = subset_mode
+		self.max_scenarios = max_scenarios
+		self.window_subset_ratio = window_subset_ratio
+		self.window_subset_seed = window_subset_seed
+		self.window_subset_mode = window_subset_mode
 
 		self.scenarios_root = scenarios_root or Config.PATH_TO_SCENARIOS
 		self.include_names = set(include_names or [])
@@ -66,6 +80,7 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 		self._sources: List[ScenarioSource] = sources
 		self._records: List[List[dict]] = [load_jsonl_records(s.jsonl_path) for s in sources]
 		self._index: List[tuple[int, int]] = self._build_index(self._records, seq_len)
+		self._index = self._apply_window_subset(self._index)
 
 	def __len__(self) -> int:
 		return len(self._index)
@@ -114,7 +129,55 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 				)
 			)
 
+		candidates = self._apply_subset(candidates)
 		return candidates
+
+	def _apply_subset(self, candidates: List[ScenarioSource]) -> List[ScenarioSource]:
+		if self.subset_ratio is not None:
+			if not (0.0 < self.subset_ratio <= 1.0):
+				raise ValueError("subset_ratio must be in (0, 1]")
+			count = max(1, int(len(candidates) * self.subset_ratio))
+			candidates = self._select_subset(candidates, count)
+
+		if self.max_scenarios is not None:
+			if self.max_scenarios <= 0:
+				raise ValueError("max_scenarios must be > 0")
+			candidates = candidates[: self.max_scenarios]
+
+		return candidates
+
+	def _select_subset(self, candidates: List[ScenarioSource], count: int) -> List[ScenarioSource]:
+		if count >= len(candidates):
+			return candidates
+		if self.subset_mode == "random":
+			import random
+
+			rng = random.Random(self.subset_seed)
+			return rng.sample(candidates, count)
+		if self.subset_mode != "first":
+			raise ValueError("subset_mode must be 'first' or 'random'")
+		return candidates[:count]
+
+	def _apply_window_subset(
+		self, index: List[tuple[int, int]]
+	) -> List[tuple[int, int]]:
+		if self.window_subset_ratio is None:
+			return index
+		if not (0.0 < self.window_subset_ratio <= 1.0):
+			raise ValueError("window_subset_ratio must be in (0, 1]")
+		count = max(1, int(len(index) * self.window_subset_ratio))
+		if count >= len(index):
+			return index
+
+		if self.window_subset_mode == "random":
+			import random
+
+			seed = self.window_subset_seed + (1 if self.split == "val" else 0)
+			rng = random.Random(seed)
+			return rng.sample(index, count)
+		if self.window_subset_mode != "first":
+			raise ValueError("window_subset_mode must be 'first' or 'random'")
+		return index[:count]
 
 	def _load_record_image(self, source: ScenarioSource, record: dict) -> torch.Tensor:
 		rel_path = record.get("rgb_image_path", "")

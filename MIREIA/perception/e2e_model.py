@@ -73,6 +73,34 @@ class TemporalBDUGRU(nn.Module):
         return torch.cat([forward_last, backward_last], dim=1)
 
 
+class TemporalBDUGRUSequence(nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int = 256,
+        num_layers: int = 2,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.gate = nn.Linear(input_dim, input_dim)
+        self.gru = nn.GRU(
+            input_dim,
+            hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=True,
+            dropout=dropout if num_layers > 1 else 0.0,
+        )
+        self.residual_proj = nn.Linear(input_dim, hidden_dim * 2)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        gate = torch.sigmoid(self.gate(x))
+        gated = x * gate
+        out, _ = self.gru(gated)
+        residual = self.residual_proj(x)
+        return out + residual
+
+
 class RiskMLP(nn.Module):
     def __init__(self, input_dim: int, dropout: float = 0.3, use_sigmoid: bool = False):
         super().__init__()
@@ -81,6 +109,27 @@ class RiskMLP(nn.Module):
             nn.ReLU(),
             nn.Dropout(p=dropout),
             nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+        self.use_sigmoid = use_sigmoid
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.mlp(x)
+        if self.use_sigmoid:
+            x = self.sigmoid(x)
+        return x
+
+
+class TimeDistributedMLP(nn.Module):
+    def __init__(self, input_dim: int, dropout: float = 0.3, use_sigmoid: bool = False):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.ReLU(),
+            nn.Dropout(p=dropout),
+            nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, 1),
         )
@@ -122,3 +171,37 @@ class E2ERiskPredictor(nn.Module):
         features = features.view(batch_size, num_frames, -1)
         temporal = self.temporal_bdugru(features)
         return self.regression_head(temporal)
+
+
+class Seq2SeqRiskPredictor(nn.Module):
+    def __init__(self, config: E2EModelConfig | None = None):
+        super().__init__()
+        if config is None:
+            config = E2EModelConfig()
+        self.config = config
+        self.spatial_backbone = SpatialBackbone(input_size=config.input_size)
+        self.temporal_bdugru = TemporalBDUGRUSequence(
+            input_dim=self.spatial_backbone.feature_dim,
+            hidden_dim=config.gru_hidden_dim,
+            num_layers=config.gru_num_layers,
+            dropout=config.gru_dropout,
+        )
+        self.regression_head = TimeDistributedMLP(
+            input_dim=config.gru_hidden_dim * 2,
+            dropout=config.mlp_dropout,
+            use_sigmoid=config.use_sigmoid,
+        )
+
+    def forward(self, x: torch.Tensor, m_eval_frames: int = 5) -> torch.Tensor:
+        if x.ndim != 5:
+            raise ValueError("Expected input shape (B, N, C, H, W)")
+        batch_size, num_frames, channels, height, width = x.shape
+        if m_eval_frames <= 0 or m_eval_frames > num_frames:
+            raise ValueError("m_eval_frames must be between 1 and N")
+
+        x = x.view(batch_size * num_frames, channels, height, width)
+        spatial_feats = self.spatial_backbone(x)
+        spatial_seq = spatial_feats.view(batch_size, num_frames, -1)
+        rnn_out = self.temporal_bdugru(spatial_seq)
+        eval_seq = rnn_out[:, -m_eval_frames:, :]
+        return self.regression_head(eval_seq)

@@ -2,6 +2,8 @@ import carla
 import random as stdlib_random
 from carla.command import SpawnActor, SetAutopilot, FutureActor, DestroyActor
 
+from MIREIA.config import Config
+
 
 class TrafficHandler:
     """
@@ -12,7 +14,13 @@ class TrafficHandler:
     destruction via destroy_all().
     """
 
-    def __init__(self, client: carla.Client, world: carla.World, seed: int = 42, tm_port: int = 8000):
+    def __init__(
+        self,
+        client: carla.Client,
+        world: carla.World,
+        seed: int = Config.RANDOM_SEED,
+        tm_port: int = 8000,
+    ):
         self.client = client
         self.world = world
         self.seed = seed
