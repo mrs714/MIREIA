@@ -163,7 +163,7 @@ class Scenario:
         )
 
 
-def generate_mireia_dataset(target_count: int = 54) -> list[Scenario]:
+def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
     """Procedural generation of MIREIA scenarios."""
     weathers = list(_WEATHER_PRESETS.keys())
 
