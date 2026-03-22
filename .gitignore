@@ -7,6 +7,8 @@
 # 3. Allow specific files
 !README.md
 !test.ipynb
+!scenario_demo.ipynb
+!train_demo.ipynb
 
 # 4. Allow a specific folder
 # Note: You must allow the folder itself AND everything inside it

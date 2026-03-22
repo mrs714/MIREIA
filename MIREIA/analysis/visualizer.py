@@ -1,4 +1,3 @@
-import json
 import math
 import os
 import shutil
@@ -16,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 from matplotlib.widgets import Slider, RadioButtons
 
 from MIREIA.core.physics import RiskOracle
+from MIREIA.data_collection.dataset_utils import load_jsonl_records
 from MIREIA.analysis.plotter import Grid, RiskGrid
 from MIREIA.simulation.bridge import EgoKinematics, DynamicObstacleKinematics, EnvironmentState, SimulationBridge
 
@@ -372,14 +372,7 @@ class DatasetVideoComposer:
         return str(output_path)
 
     def _load_records(self) -> list[dict]:
-        records: list[dict] = []
-        with self.jsonl_path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                records.append(json.loads(line))
-        return records
+        return load_jsonl_records(str(self.jsonl_path))
 
     def _infer_tile_size(self, records: list[dict]) -> tuple[int, int] | None:
         for record in records:
