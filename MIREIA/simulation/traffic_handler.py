@@ -45,6 +45,7 @@ class TrafficHandler:
 
         # Bookkeeping for cleanup
         self.ego_vehicle: carla.Actor = None
+        self.ego_controller = None
         self._vehicle_ids: list[int] = []
         self._walker_ids: list[dict] = []    # [{"id": int, "con": int}, ...]
         self._all_walker_actor_ids: list[int] = []  # interleaved [controller, walker, ...]
@@ -69,7 +70,8 @@ class TrafficHandler:
     #  EGO VEHICLE
     # -----------------------------------------------------------------
     def spawn_ego(self, blueprint_id: str = 'vehicle.lincoln.mkz_2020',
-                  spawn_index: int = None, autopilot: bool = False) -> carla.Actor:
+                  spawn_index: int = None, autopilot: bool = False,
+                  controller=None) -> carla.Actor:
         """
         Spawn a single ego vehicle marked with role_name='hero'.
 
@@ -77,6 +79,8 @@ class TrafficHandler:
         :param spawn_index: Deterministic spawn-point index. If None, chosen
             from the seeded RNG.
         :param autopilot: Whether to enable autopilot on the ego vehicle.
+        :param controller: Optional client-side controller. If provided, it
+            must implement bind_vehicle(vehicle, map_inst=...) and run_step().
         :returns: The spawned ego carla.Actor.
         """
         bp = self.world.get_blueprint_library().find(blueprint_id)
@@ -90,11 +94,29 @@ class TrafficHandler:
 
         self.ego_vehicle = self.world.spawn_actor(bp, sp)
 
+        if autopilot and controller is not None:
+            print("Warning: controller provided; forcing ego autopilot=False")
+            autopilot = False
+
         if autopilot:
             self.ego_vehicle.set_autopilot(True, self.traffic_manager.get_port())
 
+        self.ego_controller = controller
+        if self.ego_controller is not None:
+            if not hasattr(self.ego_controller, "bind_vehicle") or not hasattr(self.ego_controller, "run_step"):
+                raise TypeError("controller must implement bind_vehicle(...) and run_step().")
+            self.ego_controller.bind_vehicle(self.ego_vehicle, map_inst=self.world.get_map())
+
         print(f"Spawned ego vehicle '{blueprint_id}' at index {spawn_index} (autopilot={autopilot})")
         return self.ego_vehicle
+
+    def run_ego_controller_step(self):
+        """Run one step of the optional ego controller and apply control."""
+        if self.ego_vehicle is None or self.ego_controller is None:
+            return None
+        control = self.ego_controller.run_step()
+        self.ego_vehicle.apply_control(control)
+        return control
 
     # -----------------------------------------------------------------
     #  TRAFFIC VEHICLES
@@ -299,6 +321,7 @@ class TrafficHandler:
 
         # Reset bookkeeping
         self.ego_vehicle = None
+        self.ego_controller = None
         self._vehicle_ids.clear()
         self._walker_ids.clear()
         self._all_walker_actor_ids.clear()
