@@ -24,6 +24,9 @@ MIREIA/scenarios/**/dataset/
 MIREIA/scenarios/**/dataset.jsonl
 MIREIA/scenarios/**/*.mp4
 
+# Ignore model weights until i can divide them into smaller files
+*.pt
+
 
 # 5. Allow certain file types anywhere
 !*.png
