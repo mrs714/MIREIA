@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
+from typing import Callable
 
 import carla
 
@@ -38,6 +39,9 @@ class SimpleRouteController:
     def __init__(self, target_speed: float = 10.0, sampling_resolution: float = 2.0,
                  local_planner_options: dict | None = None):
         self._target_speed = target_speed
+        self._speed_modifier: Callable[[float, int, "SimpleRouteController"], float] | None = None
+        self._tick_count = 0
+        self._last_applied_target_speed = float(target_speed)
         self._sampling_resolution = sampling_resolution
         self._local_planner_options = local_planner_options.copy() if local_planner_options else {}
         self._local_planner_options.setdefault("target_speed", target_speed)
@@ -64,6 +68,21 @@ class SimpleRouteController:
         self._map = map_inst if map_inst is not None else vehicle.get_world().get_map()
         self._global_planner = GlobalRoutePlanner(self._map, self._sampling_resolution)
         self._local_planner = LocalPlanner(vehicle, opt_dict=self._local_planner_options, map_inst=self._map)
+
+    def set_target_speed(self, target_speed: float):
+        """Set base target speed in km/h used by the speed modifier callback."""
+        self._target_speed = max(0.0, float(target_speed))
+
+    def set_speed_modifier(self, fn: Callable[[float, int, "SimpleRouteController"], float] | None):
+        """Set optional callback to transform target speed each tick.
+
+        Callback signature: fn(base_speed_kmh, tick_index, controller) -> target_speed_kmh
+        """
+        self._speed_modifier = fn
+
+    def get_last_applied_target_speed(self) -> float:
+        """Return last target speed sent to CARLA LocalPlanner (km/h)."""
+        return self._last_applied_target_speed
 
     def set_destination(self, start_location: carla.Location, end_location: carla.Location,
                         clean_queue: bool = True):
@@ -93,11 +112,13 @@ class SimpleRouteController:
             plan = [(start_wp, RoadOption.LANEFOLLOW)] + plan
 
         self._last_plan = plan
+        self._tick_count = 0
         planner.set_global_plan(plan, stop_waypoint_creation=True, clean_queue=clean_queue)
 
     def set_global_plan(self, plan: list[tuple[carla.Waypoint, RoadOption]], clean_queue: bool = True):
         planner = self._require_local_planner()
         self._last_plan = list(plan)
+        self._tick_count = 0
         planner.set_global_plan(plan, stop_waypoint_creation=True, clean_queue=clean_queue)
 
     def get_plan_length(self) -> int:
@@ -120,7 +141,10 @@ class SimpleRouteController:
             # Hard-stop at destination to avoid creeping once the route is complete.
             return carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0)
         planner = self._require_local_planner()
-        return planner.run_step(debug=debug)
+        planner.set_speed(self._compute_target_speed())
+        control = planner.run_step(debug=debug)
+        self._tick_count += 1
+        return control
 
     def done(self) -> bool:
         planner = self._require_local_planner()
@@ -146,3 +170,15 @@ class SimpleRouteController:
         if self._local_planner is None:
             raise RuntimeError("Controller is not bound to a vehicle. Call bind_vehicle first.")
         return self._local_planner
+
+    def _compute_target_speed(self) -> float:
+        speed = float(self._target_speed)
+        if self._speed_modifier is not None:
+            try:
+                modified = self._speed_modifier(speed, self._tick_count, self)
+            except TypeError:
+                modified = self._speed_modifier(speed)
+            speed = float(speed if modified is None else modified)
+        speed = max(0.0, speed)
+        self._last_applied_target_speed = speed
+        return speed
