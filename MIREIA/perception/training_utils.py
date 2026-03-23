@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Dict, Iterable, Optional, Tuple
 
 import torch
@@ -210,6 +211,9 @@ def save_checkpoint(
     epoch: int,
     extra: Optional[Dict[str, object]] = None,
 ) -> None:
+    checkpoint_dir = os.path.dirname(checkpoint_path)
+    if checkpoint_dir:
+        os.makedirs(checkpoint_dir, exist_ok=True)
     payload = {
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
