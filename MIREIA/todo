@@ -17,7 +17,9 @@ not only that, but i should get additional info like the overall time taken, and
 Alright. Now. I was trying to implement trials some time ago, but it resulted in a big big mess because the reformating we've done wasn't done yet. The idea of trials is simple: the scenarios serve to have the car drive around and collect images to create a dataset. 
 
 The trials will have the car drive to a specific point, and gather information. 
-The selection in the todo is the overall idea, but basically, i want to record frames, just as before, and i want to record the ground truth risk, and optionally a calculated risk, the overall time it took to go along the designated route, 
+The selection in the todo is the overall idea, but basically, i want to record frames, just as before, and i want to record the ground truth risk, and optionally a calculated risk, the overall time it took to go along the designated route... i want to main modes to be able to run trials: first, just to run them or to compare with the predicted value to the ground truth, and second, to compare two runs, so the outputs of the trials should allow me to do this. 
+
+Furthermore, i would like to compare the area under the curve as an overall risk metric, and that can be compared by just displaying the two plot lines together. 
 
 
 shouldnt the model predict like 5 outputs? like give it 10 frames and make it predict 5 so the outputs are consistent temporally and not jump around too much
