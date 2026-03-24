@@ -71,7 +71,7 @@ class TrafficHandler:
     # -----------------------------------------------------------------
     def spawn_ego(self, blueprint_id: str = 'vehicle.lincoln.mkz_2020',
                   spawn_index: int = None, autopilot: bool = False,
-                  controller=None) -> carla.Actor:
+                  controller=None, spawn_point: carla.Transform | int = None) -> carla.Actor:
         """
         Spawn a single ego vehicle marked with role_name='hero'.
 
@@ -81,16 +81,37 @@ class TrafficHandler:
         :param autopilot: Whether to enable autopilot on the ego vehicle.
         :param controller: Optional client-side controller. If provided, it
             must implement bind_vehicle(vehicle, map_inst=...) and run_step().
+        :param spawn_point: Optional spawn selector that overrides spawn_index.
+            - If carla.Transform: exact spawn transform.
+            - If int: waypoint ID; nearest generated waypoint transform is used.
         :returns: The spawned ego carla.Actor.
         """
         bp = self.world.get_blueprint_library().find(blueprint_id)
         bp.set_attribute('role_name', 'hero')
 
         spawn_points = self.world.get_map().get_spawn_points()
-        if spawn_index is not None:
-            sp = spawn_points[spawn_index % len(spawn_points)]
+        if spawn_point is not None:
+            if isinstance(spawn_point, int):
+                map_inst = self.world.get_map()
+                all_wps = map_inst.generate_waypoints(2.0)
+                matches = [wp for wp in all_wps if wp.id == spawn_point]
+                if not matches:
+                    raise RuntimeError(f"No waypoint found with id={spawn_point}")
+
+                # If multiple waypoints share the same id, pick the first one
+                if len(matches) > 1:
+                    print(f"Warning: multiple waypoints found with id={spawn_point}, using the first match.")
+                    best_wp = matches[0]
+
+                sp = best_wp.transform
+                sp.location.z += 0.5
+            else:
+                sp = spawn_point
         else:
-            sp = self._rng.choice(spawn_points)
+            if spawn_index is not None:
+                sp = spawn_points[spawn_index % len(spawn_points)]
+            else:
+                sp = self._rng.choice(spawn_points)
 
         self.ego_vehicle = self.world.spawn_actor(bp, sp)
 
