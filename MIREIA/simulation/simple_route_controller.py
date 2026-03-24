@@ -13,7 +13,11 @@ def _load_agents_modules():
     try:
         local_planner_mod = importlib.import_module("agents.navigation.local_planner")
         global_route_planner_mod = importlib.import_module("agents.navigation.global_route_planner")
-        return local_planner_mod, global_route_planner_mod
+        try:
+            behavior_agent_mod = importlib.import_module("agents.navigation.behavior_agent")
+        except ImportError:
+            behavior_agent_mod = None
+        return local_planner_mod, global_route_planner_mod, behavior_agent_mod
     except ImportError:
         repo_root = Path(__file__).resolve().parents[2]
         carla_pythonapi = repo_root / "PythonAPI" / "carla"
@@ -21,27 +25,47 @@ def _load_agents_modules():
             sys.path.insert(0, str(carla_pythonapi))
         local_planner_mod = importlib.import_module("agents.navigation.local_planner")
         global_route_planner_mod = importlib.import_module("agents.navigation.global_route_planner")
-        return local_planner_mod, global_route_planner_mod
+        try:
+            behavior_agent_mod = importlib.import_module("agents.navigation.behavior_agent")
+        except ImportError:
+            behavior_agent_mod = None
+        return local_planner_mod, global_route_planner_mod, behavior_agent_mod
 
 
-_LOCAL_PLANNER_MOD, _GLOBAL_ROUTE_PLANNER_MOD = _load_agents_modules()
+_LOCAL_PLANNER_MOD, _GLOBAL_ROUTE_PLANNER_MOD, _BEHAVIOR_AGENT_MOD = _load_agents_modules()
 LocalPlanner = _LOCAL_PLANNER_MOD.LocalPlanner
 RoadOption = _LOCAL_PLANNER_MOD.RoadOption
 GlobalRoutePlanner = _GLOBAL_ROUTE_PLANNER_MOD.GlobalRoutePlanner
+BehaviorAgent = _BEHAVIOR_AGENT_MOD.BehaviorAgent if _BEHAVIOR_AGENT_MOD is not None else None
 
 
 class SimpleRouteController:
     """
     Small wrapper that uses GlobalRoutePlanner.trace_route(start, end)
-    and executes it with LocalPlanner.
+    and executes it with either:
+      - BehaviorAgent (default): traffic-light + vehicle + pedestrian aware
+      - LocalPlanner: pure waypoint follower (legacy behavior)
     """
 
     def __init__(self, target_speed: float = 10.0, sampling_resolution: float = 2.0,
-                 local_planner_options: dict | None = None):
+                 local_planner_options: dict | None = None,
+                 mode: str = "behavior_agent",
+                 behavior: str = "normal"):
+        mode = str(mode).strip().lower()
+        if mode not in {"behavior_agent", "local_planner"}:
+            raise ValueError("mode must be 'behavior_agent' or 'local_planner'")
+        if mode == "behavior_agent" and BehaviorAgent is None:
+            raise RuntimeError(
+                "BehaviorAgent is unavailable (missing CARLA agent dependencies, e.g. shapely). "
+                "Install dependencies or use mode='local_planner'."
+            )
+
         self._target_speed = target_speed
         self._speed_modifier: Callable[[float, int, "SimpleRouteController"], float] | None = None
         self._tick_count = 0
         self._last_applied_target_speed = float(target_speed)
+        self._mode = mode
+        self._behavior = behavior
         self._sampling_resolution = sampling_resolution
         self._local_planner_options = local_planner_options.copy() if local_planner_options else {}
         self._local_planner_options.setdefault("target_speed", target_speed)
@@ -62,12 +86,25 @@ class SimpleRouteController:
         self._map: carla.Map | None = None
         self._global_planner = None
         self._local_planner = None
+        self._behavior_agent = None
 
     def bind_vehicle(self, vehicle: carla.Actor, map_inst: carla.Map | None = None):
         self._vehicle = vehicle
         self._map = map_inst if map_inst is not None else vehicle.get_world().get_map()
         self._global_planner = GlobalRoutePlanner(self._map, self._sampling_resolution)
-        self._local_planner = LocalPlanner(vehicle, opt_dict=self._local_planner_options, map_inst=self._map)
+
+        if self._mode == "behavior_agent":
+            # BehaviorAgent wraps BasicAgent+LocalPlanner and adds obstacle/light-aware behaviors.
+            self._behavior_agent = BehaviorAgent(
+                vehicle,
+                behavior=self._behavior,
+                opt_dict=self._local_planner_options,
+                map_inst=self._map,
+                grp_inst=self._global_planner,
+            )
+            self._local_planner = self._behavior_agent.get_local_planner()
+        else:
+            self._local_planner = LocalPlanner(vehicle, opt_dict=self._local_planner_options, map_inst=self._map)
 
     def set_target_speed(self, target_speed: float):
         """Set base target speed in km/h used by the speed modifier callback."""
@@ -140,9 +177,16 @@ class SimpleRouteController:
         if self.done():
             # Hard-stop at destination to avoid creeping once the route is complete.
             return carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0)
-        planner = self._require_local_planner()
-        planner.set_speed(self._compute_target_speed())
-        control = planner.run_step(debug=debug)
+
+        target_speed = self._compute_target_speed()
+        self._apply_target_speed(target_speed)
+
+        if self._behavior_agent is not None:
+            control = self._behavior_agent.run_step(debug=debug)
+        else:
+            planner = self._require_local_planner()
+            control = planner.run_step(debug=debug)
+
         self._tick_count += 1
         return control
 
@@ -182,3 +226,16 @@ class SimpleRouteController:
         speed = max(0.0, speed)
         self._last_applied_target_speed = speed
         return speed
+
+    def _apply_target_speed(self, target_speed: float) -> None:
+        """Propagate target speed to the active backend."""
+        if self._behavior_agent is not None:
+            # Base target speed used by BasicAgent/LocalPlanner.
+            self._behavior_agent.set_target_speed(target_speed)
+            # BehaviorAgent's high-level policy also caps with behavior.max_speed.
+            behavior = getattr(self._behavior_agent, "_behavior", None)
+            if behavior is not None and hasattr(behavior, "max_speed"):
+                behavior.max_speed = target_speed
+        else:
+            planner = self._require_local_planner()
+            planner.set_speed(target_speed)
