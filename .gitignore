@@ -25,6 +25,11 @@ MIREIA/scenarios/**/dataset/
 MIREIA/scenarios/**/dataset.jsonl
 MIREIA/scenarios/**/*.mp4
 
+# Ignore per trial datasets
+MIREIA/trials/**/images/
+MIREIA/trials/**/dataset.jsonl
+MIREIA/trials/**/*.mp4
+
 # Ignore model weights until i can divide them into smaller files
 *.pt
 
