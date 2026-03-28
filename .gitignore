@@ -43,4 +43,8 @@ __pycache__/
 **/__pycache__/
 __pycache__/**
 *.pyc
+MIREIA/**/__pycache__/
+MIREIA/**/__pycache__/**
+MIREIA/**/*.pyc
+MIREIA/**/*.pyo
 *.pyo
