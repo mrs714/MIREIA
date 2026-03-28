@@ -63,6 +63,7 @@ class WorldManager:
         self._static_risk_image_dpi: int = 150
         self._record_topdown: bool = False
         self._record_static_risk_image: bool = False
+        self._ego_controller = None
 
         # Connect to CARLA
         self.__connect_carla()
@@ -133,6 +134,10 @@ class WorldManager:
         if self.verbose:
             print(f"Scenario '{scenario.name}' is ready.")
 
+    def set_ego_controller(self, controller):
+        """Set an optional client-side controller to intercept ego planning."""
+        self._ego_controller = controller
+
     def __load_map(self):
         """Load the scenario's map if it differs from the one currently active."""
         current_map = self.world.get_map().name
@@ -170,7 +175,9 @@ class WorldManager:
         self.ego_vehicle = self.traffic_handler.spawn_ego(
             blueprint_id=self.scenario.ego_blueprint,
             spawn_index=self.scenario.ego_spawn_index,
+            spawn_point=getattr(self.scenario, "ego_spawn_point", None),
             autopilot=self.scenario.ego_autopilot,
+            controller=self._ego_controller,
         )
 
         if self.scenario.n_vehicles > 0:
@@ -451,6 +458,9 @@ class WorldManager:
         :param risk_map_image_path: Relative path to the static risk map image.
         :returns: The logged record dict, or *None* if recording is off.
         """
+        if self.traffic_handler is not None:
+            self.traffic_handler.run_ego_controller_step()
+
         self.world.tick()
         if self.bridge is not None:
             self.bridge.update()

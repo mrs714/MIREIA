@@ -19,3 +19,10 @@ class Config:
         'PATH_TO_TRIALS',
         os.path.join(_MIREIA_DIR, 'trials'),
     )
+    PATH_TO_MODELS: str = os.getenv(
+        'PATH_TO_MODELS',
+        os.path.join(_MIREIA_DIR, 'models'),
+    )
+
+    # Reproducibility
+    RANDOM_SEED: int = int(os.getenv('MIREIA_RANDOM_SEED', 42))

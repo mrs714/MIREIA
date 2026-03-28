@@ -2,6 +2,8 @@ import carla
 import random as stdlib_random
 from carla.command import SpawnActor, SetAutopilot, FutureActor, DestroyActor
 
+from MIREIA.config import Config
+
 
 class TrafficHandler:
     """
@@ -12,7 +14,13 @@ class TrafficHandler:
     destruction via destroy_all().
     """
 
-    def __init__(self, client: carla.Client, world: carla.World, seed: int = 42, tm_port: int = 8000):
+    def __init__(
+        self,
+        client: carla.Client,
+        world: carla.World,
+        seed: int = Config.RANDOM_SEED,
+        tm_port: int = 8000,
+    ):
         self.client = client
         self.world = world
         self.seed = seed
@@ -37,6 +45,7 @@ class TrafficHandler:
 
         # Bookkeeping for cleanup
         self.ego_vehicle: carla.Actor = None
+        self.ego_controller = None
         self._vehicle_ids: list[int] = []
         self._walker_ids: list[dict] = []    # [{"id": int, "con": int}, ...]
         self._all_walker_actor_ids: list[int] = []  # interleaved [controller, walker, ...]
@@ -61,7 +70,9 @@ class TrafficHandler:
     #  EGO VEHICLE
     # -----------------------------------------------------------------
     def spawn_ego(self, blueprint_id: str = 'vehicle.lincoln.mkz_2020',
-                  spawn_index: int = None, autopilot: bool = False) -> carla.Actor:
+                  spawn_index: int = None, autopilot: bool = False,
+                  controller=None,
+                  spawn_point: carla.Transform | carla.Location | tuple[float, float, float] | list[float] | int | None = None) -> carla.Actor:
         """
         Spawn a single ego vehicle marked with role_name='hero'.
 
@@ -69,24 +80,94 @@ class TrafficHandler:
         :param spawn_index: Deterministic spawn-point index. If None, chosen
             from the seeded RNG.
         :param autopilot: Whether to enable autopilot on the ego vehicle.
+        :param controller: Optional client-side controller. If provided, it
+            must implement bind_vehicle(vehicle, map_inst=...) and run_step().
+        :param spawn_point: Optional spawn selector that overrides spawn_index.
+            - If carla.Transform: exact spawn transform.
+            - If carla.Location or (x,y,z): projected to nearest drivable waypoint.
+            - If int: waypoint ID; nearest generated waypoint transform is used.
         :returns: The spawned ego carla.Actor.
         """
         bp = self.world.get_blueprint_library().find(blueprint_id)
         bp.set_attribute('role_name', 'hero')
 
         spawn_points = self.world.get_map().get_spawn_points()
-        if spawn_index is not None:
-            sp = spawn_points[spawn_index % len(spawn_points)]
+        if spawn_point is not None:
+            if isinstance(spawn_point, int):
+                map_inst = self.world.get_map()
+                all_wps = map_inst.generate_waypoints(2.0)
+                matches = [wp for wp in all_wps if wp.id == spawn_point]
+                if not matches:
+                    raise RuntimeError(f"No waypoint found with id={spawn_point}")
+
+                # If multiple waypoints share the same id, pick the first one.
+                if len(matches) > 1:
+                    print(f"Warning: multiple waypoints found with id={spawn_point}, using the first match.")
+                best_wp = matches[0]
+                sp = best_wp.transform
+                sp.location.z += 0.5
+            elif isinstance(spawn_point, (tuple, list)):
+                if len(spawn_point) < 3:
+                    raise RuntimeError("spawn_point tuple/list must contain (x, y, z)")
+                map_inst = self.world.get_map()
+                loc = carla.Location(
+                    x=float(spawn_point[0]),
+                    y=float(spawn_point[1]),
+                    z=float(spawn_point[2]),
+                )
+                wp = map_inst.get_waypoint(
+                    loc,
+                    project_to_road=True,
+                    lane_type=carla.LaneType.Driving,
+                )
+                if wp is None:
+                    raise RuntimeError(f"Could not project spawn_point={spawn_point} to a drivable lane")
+                sp = wp.transform
+                sp.location.z += 0.5
+            elif isinstance(spawn_point, carla.Location):
+                map_inst = self.world.get_map()
+                wp = map_inst.get_waypoint(
+                    spawn_point,
+                    project_to_road=True,
+                    lane_type=carla.LaneType.Driving,
+                )
+                if wp is None:
+                    raise RuntimeError("Could not project carla.Location spawn point to a drivable lane")
+                sp = wp.transform
+                sp.location.z += 0.5
+            else:
+                sp = spawn_point
         else:
-            sp = self._rng.choice(spawn_points)
+            if spawn_index is not None:
+                sp = spawn_points[spawn_index % len(spawn_points)]
+            else:
+                sp = self._rng.choice(spawn_points)
 
         self.ego_vehicle = self.world.spawn_actor(bp, sp)
+
+        if autopilot and controller is not None:
+            print("Warning: controller provided; forcing ego autopilot=False")
+            autopilot = False
 
         if autopilot:
             self.ego_vehicle.set_autopilot(True, self.traffic_manager.get_port())
 
+        self.ego_controller = controller
+        if self.ego_controller is not None:
+            if not hasattr(self.ego_controller, "bind_vehicle") or not hasattr(self.ego_controller, "run_step"):
+                raise TypeError("controller must implement bind_vehicle(...) and run_step().")
+            self.ego_controller.bind_vehicle(self.ego_vehicle, map_inst=self.world.get_map())
+
         print(f"Spawned ego vehicle '{blueprint_id}' at index {spawn_index} (autopilot={autopilot})")
         return self.ego_vehicle
+
+    def run_ego_controller_step(self):
+        """Run one step of the optional ego controller and apply control."""
+        if self.ego_vehicle is None or self.ego_controller is None:
+            return None
+        control = self.ego_controller.run_step()
+        self.ego_vehicle.apply_control(control)
+        return control
 
     # -----------------------------------------------------------------
     #  TRAFFIC VEHICLES
@@ -291,6 +372,7 @@ class TrafficHandler:
 
         # Reset bookkeeping
         self.ego_vehicle = None
+        self.ego_controller = None
         self._vehicle_ids.clear()
         self._walker_ids.clear()
         self._all_walker_actor_ids.clear()

@@ -7,6 +7,9 @@
 # 3. Allow specific files
 !README.md
 !test.ipynb
+!scenario_demo.ipynb
+!train_demo.ipynb
+!trial_demo.ipynb
 
 # 4. Allow a specific folder
 # Note: You must allow the folder itself AND everything inside it
@@ -22,14 +25,30 @@ MIREIA/scenarios/**/dataset/
 MIREIA/scenarios/**/dataset.jsonl
 MIREIA/scenarios/**/*.mp4
 
+# Ignore per trial datasets
+MIREIA/trials/**/images/
+MIREIA/trials/**/dataset.jsonl
+MIREIA/trials/**/*.mp4
+MIREIA/trials/**/*.png
+
+# Ignore model weights until i can divide them into smaller files
+*.pt
+
 
 # 5. Allow certain file types anywhere
 !*.png
 !*.cpp
+
+# Ignore generated scenario risk-map images (must be after !*.png)
+MIREIA/scenarios/**/risk_map_*.png
 
 # Ignore any __pycache__ wherever it is
 __pycache__/
 **/__pycache__/
 __pycache__/**
 *.pyc
+MIREIA/**/__pycache__/
+MIREIA/**/__pycache__/**
+MIREIA/**/*.pyc
+MIREIA/**/*.pyo
 *.pyo
