@@ -29,6 +29,7 @@ MIREIA/scenarios/**/*.mp4
 MIREIA/trials/**/images/
 MIREIA/trials/**/dataset.jsonl
 MIREIA/trials/**/*.mp4
+MIREIA/trials/**/*.png
 
 # Ignore model weights until i can divide them into smaller files
 *.pt
@@ -37,6 +38,9 @@ MIREIA/trials/**/*.mp4
 # 5. Allow certain file types anywhere
 !*.png
 !*.cpp
+
+# Ignore generated scenario risk-map images (must be after !*.png)
+MIREIA/scenarios/**/risk_map_*.png
 
 # Ignore any __pycache__ wherever it is
 __pycache__/
