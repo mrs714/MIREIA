@@ -57,7 +57,8 @@ class DatasetLogger:
         if *False* the file is truncated on open.
     """
 
-    def __init__(self, output_path: str, append: bool = True, delete_existing: bool = False):
+    def __init__(self, output_path: str, append: bool = True, delete_existing: bool = False,
+                 static_meta: dict | None = None):
         self.output_path = output_path
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
@@ -68,6 +69,7 @@ class DatasetLogger:
         mode = "a" if append else "w"
         self._file: TextIO = open(output_path, mode, encoding="utf-8")
         self._frame_count: int = 0
+        self._static_meta: dict = dict(static_meta or {})
 
     # ── Public API ──────────────────────────────────────────────────
     def log_frame(
@@ -83,6 +85,7 @@ class DatasetLogger:
         timestamp: float | None = None,
         risk_oracle: RiskOracle | None = None,
         baked_static_risk: RiskGrid | None = None,
+        extra_fields: dict | None = None,
     ) -> dict:
         """
         Build a frame record from live simulation state and write it as a
@@ -135,6 +138,7 @@ class DatasetLogger:
             topdown_image_path,
             risk_map_image_path,
             timestamp,
+            extra_fields=extra_fields,
         )
 
         self._write_line(record)
@@ -182,11 +186,12 @@ class DatasetLogger:
         topdown_image_path: str,
         risk_map_image_path: str,
         timestamp: float,
+        extra_fields: dict | None = None,
     ) -> dict:
         ego = bridge.get_ego_kinematics()
         env = bridge.get_environment_state()
 
-        return {
+        record = {
             # ── Metadata ────────────────────────────────────────────
             "frame_id":           frame_id,
             "timestamp":          timestamp,
@@ -206,6 +211,13 @@ class DatasetLogger:
             # ── Environment ─────────────────────────────────────────
             "environment": self._serialize_environment(env, scenario),
         }
+
+        if self._static_meta:
+            record["meta"] = dict(self._static_meta)
+        if extra_fields:
+            record["extra_fields"] = dict(extra_fields)
+
+        return record
 
     # ── Ego ─────────────────────────────────────────────────────────
     @staticmethod

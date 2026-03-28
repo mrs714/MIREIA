@@ -71,7 +71,8 @@ class TrafficHandler:
     # -----------------------------------------------------------------
     def spawn_ego(self, blueprint_id: str = 'vehicle.lincoln.mkz_2020',
                   spawn_index: int = None, autopilot: bool = False,
-                  controller=None, spawn_point: carla.Transform | int = None) -> carla.Actor:
+                  controller=None,
+                  spawn_point: carla.Transform | carla.Location | tuple[float, float, float] | list[float] | int | None = None) -> carla.Actor:
         """
         Spawn a single ego vehicle marked with role_name='hero'.
 
@@ -83,6 +84,7 @@ class TrafficHandler:
             must implement bind_vehicle(vehicle, map_inst=...) and run_step().
         :param spawn_point: Optional spawn selector that overrides spawn_index.
             - If carla.Transform: exact spawn transform.
+            - If carla.Location or (x,y,z): projected to nearest drivable waypoint.
             - If int: waypoint ID; nearest generated waypoint transform is used.
         :returns: The spawned ego carla.Actor.
         """
@@ -98,12 +100,40 @@ class TrafficHandler:
                 if not matches:
                     raise RuntimeError(f"No waypoint found with id={spawn_point}")
 
-                # If multiple waypoints share the same id, pick the first one
+                # If multiple waypoints share the same id, pick the first one.
                 if len(matches) > 1:
                     print(f"Warning: multiple waypoints found with id={spawn_point}, using the first match.")
-                    best_wp = matches[0]
-
+                best_wp = matches[0]
                 sp = best_wp.transform
+                sp.location.z += 0.5
+            elif isinstance(spawn_point, (tuple, list)):
+                if len(spawn_point) < 3:
+                    raise RuntimeError("spawn_point tuple/list must contain (x, y, z)")
+                map_inst = self.world.get_map()
+                loc = carla.Location(
+                    x=float(spawn_point[0]),
+                    y=float(spawn_point[1]),
+                    z=float(spawn_point[2]),
+                )
+                wp = map_inst.get_waypoint(
+                    loc,
+                    project_to_road=True,
+                    lane_type=carla.LaneType.Driving,
+                )
+                if wp is None:
+                    raise RuntimeError(f"Could not project spawn_point={spawn_point} to a drivable lane")
+                sp = wp.transform
+                sp.location.z += 0.5
+            elif isinstance(spawn_point, carla.Location):
+                map_inst = self.world.get_map()
+                wp = map_inst.get_waypoint(
+                    spawn_point,
+                    project_to_road=True,
+                    lane_type=carla.LaneType.Driving,
+                )
+                if wp is None:
+                    raise RuntimeError("Could not project carla.Location spawn point to a drivable lane")
+                sp = wp.transform
                 sp.location.z += 0.5
             else:
                 sp = spawn_point

@@ -24,6 +24,20 @@ _WEATHER_PRESETS: dict[str, carla.WeatherParameters] = {
 }
 
 
+# Canonical ego camera offsets by blueprint (x, y, z) in vehicle coordinates.
+EGO_CAMERA_POSITIONS: dict[str, tuple[float, float, float]] = {
+    'vehicle.lincoln.mkz_2020': (0.8, 0.0, 1.3),
+    'vehicle.tesla.model3': (0.8, 0.0, 1.3),
+    'vehicle.audi.etron': (0.65, 0.0, 1.4),
+    'vehicle.carlamotors.carlacola': (2.2, 0.0, 1.9),
+}
+
+
+def get_default_ego_camera_position(ego_blueprint: str) -> tuple[float, float, float] | None:
+    """Return the default camera offset for a known ego blueprint."""
+    return EGO_CAMERA_POSITIONS.get(ego_blueprint)
+
+
 class Scenario:
     """
     A Scenario holds every parameter needed to reproduce an identical
@@ -48,6 +62,7 @@ class Scenario:
                  ego_blueprint: str = 'vehicle.lincoln.mkz_2020',
                  ego_camera_position: tuple[float, float, float] | list[float] | None = None,
                  ego_spawn_index: int | None = None,
+                 ego_spawn_point: tuple[float, float, float] | list[float] | None = None,
                  ego_autopilot: bool = True,
                  # Traffic
                  n_vehicles: int = 30,
@@ -68,6 +83,9 @@ class Scenario:
             ego_camera_position = tuple(ego_camera_position)
         self.ego_camera_position = ego_camera_position
         self.ego_spawn_index = ego_spawn_index
+        if isinstance(ego_spawn_point, list):
+            ego_spawn_point = tuple(ego_spawn_point)
+        self.ego_spawn_point = ego_spawn_point
         self.ego_autopilot = ego_autopilot
         # Traffic
         self.n_vehicles = n_vehicles
@@ -105,6 +123,7 @@ class Scenario:
             "ego_blueprint":    self.ego_blueprint,
             "ego_camera_position": list(self.ego_camera_position) if self.ego_camera_position is not None else None,
             "ego_spawn_index":  self.ego_spawn_index,
+            "ego_spawn_point": list(self.ego_spawn_point) if self.ego_spawn_point is not None else None,
             "ego_autopilot":    self.ego_autopilot,
             "n_vehicles":       self.n_vehicles,
             "n_pedestrians":    self.n_pedestrians,
@@ -175,13 +194,6 @@ def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
         'vehicle.carlamotors.carlacola',
     ]
 
-    ego_camera_positions = {
-        'vehicle.lincoln.mkz_2020': (0.8, 0.0, 1.3),
-        'vehicle.tesla.model3': (0.8, 0.0, 1.3),
-        'vehicle.audi.etron': (0.65, 0.0, 1.4),
-        'vehicle.carlamotors.carlacola': (2.2, 0.0, 1.9),
-    }
-
     # Towns 01 through 07
     towns = [f'Town0{i}' for i in range(1, 6)] + ['Town10HD']
 
@@ -200,7 +212,7 @@ def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
             description=f"High density traffic, aggressive AI, driving {egos[0]}.",
             weather=weather,
             ego_blueprint=egos[0],
-            ego_camera_position=ego_camera_positions.get(egos[0]),
+            ego_camera_position=get_default_ego_camera_position(egos[0]),
             n_vehicles=80,
             n_pedestrians=50,
             pct_running=15.0,
@@ -214,7 +226,7 @@ def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
             description=f"Low density traffic, safe AI, driving {egos[1]}.",
             weather=weather,
             ego_blueprint=egos[1],
-            ego_camera_position=ego_camera_positions.get(egos[1]),
+            ego_camera_position=get_default_ego_camera_position(egos[1]),
             n_vehicles=40,
             n_pedestrians=20,
             pct_running=0.0,
@@ -229,7 +241,7 @@ def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
             description=f"High density traffic, aggressive AI, driving {egos[2]}.",
             weather=weather,
             ego_blueprint=egos[2],
-            ego_camera_position=ego_camera_positions.get(egos[2]),
+            ego_camera_position=get_default_ego_camera_position(egos[2]),
             n_vehicles=80,
             n_pedestrians=50,
             pct_running=15.0,
@@ -243,7 +255,7 @@ def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
             description="Low density traffic, safe AI, driving a heavy truck.",
             weather=weather,
             ego_blueprint=egos[3],
-            ego_camera_position=ego_camera_positions.get(egos[3]),
+            ego_camera_position=get_default_ego_camera_position(egos[3]),
             n_vehicles=40,
             n_pedestrians=20,
             pct_running=0.0,
@@ -259,5 +271,7 @@ def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
 
 __all__ = [
     "Scenario",
+    "EGO_CAMERA_POSITIONS",
+    "get_default_ego_camera_position",
     "generate_mireia_dataset",
 ]

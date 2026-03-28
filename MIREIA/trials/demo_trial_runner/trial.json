@@ -1,0 +1,24 @@
+{
+  "name": "demo_trial_runner",
+  "route_start": [
+    7.409,
+    -64.4,
+    0.0
+  ],
+  "route_end": [
+    44.003,
+    50.549,
+    0.0
+  ],
+  "description": "Two ego subtrials on the same world setup.",
+  "map_name": "Town03",
+  "weather": "ClearNoon",
+  "n_vehicles": 30,
+  "n_pedestrians": 20,
+  "pct_running": 0.0,
+  "pct_crossing": 0.0,
+  "safe_vehicles": true,
+  "seed": 42,
+  "sync_mode": true,
+  "fixed_delta": 0.05
+}

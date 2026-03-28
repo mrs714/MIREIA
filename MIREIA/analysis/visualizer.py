@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -337,11 +338,22 @@ class DatasetVideoComposer:
     - bottom-left: risk map
     """
 
-    def __init__(self, jsonl_path: str, fps: int = 10, background=(0, 0, 0)):
+    def __init__(self, jsonl_path: str, fps: int = 10, background=(0, 0, 0),
+                 risk_tile_mode: str = "number",
+                 calculated_risk_key: str | None = None,
+                 calculated_risk_fn: Callable[[dict], float] | None = None,
+                 risk_graph_ylim: tuple[float, float] | None = None):
         self.jsonl_path = Path(jsonl_path)
         self.dataset_dir = self.jsonl_path.parent
         self.fps = fps
         self.background = background
+        self.risk_tile_mode = risk_tile_mode
+        self.calculated_risk_key = calculated_risk_key
+        self.calculated_risk_fn = calculated_risk_fn
+        self.risk_graph_ylim = risk_graph_ylim
+        self._distance_axis: np.ndarray | None = None
+        self._true_risk_series: np.ndarray | None = None
+        self._calculated_risk_series: np.ndarray | None = None
 
     def build_video(self, output_name: str = "dataset_video.mp4") -> str:
         """
@@ -357,12 +369,15 @@ class DatasetVideoComposer:
         if not records:
             raise RuntimeError("No frames found in JSONL.")
 
+        if self.risk_tile_mode == "graph":
+            self._prepare_risk_graph_cache(records)
+
         tile_size = self._infer_tile_size(records)
         if tile_size is None:
             raise RuntimeError("No image paths found in JSONL.")
 
         for idx, record in enumerate(records):
-            frame = self._compose_frame(record, tile_size)
+            frame = self._compose_frame(record, tile_size, idx)
             frame_path = frames_dir / f"frame_{idx:06d}.png"
             frame.save(frame_path)
 
@@ -393,7 +408,7 @@ class DatasetVideoComposer:
             return None
         return Image.open(img_path)
 
-    def _compose_frame(self, record: dict, tile_size: tuple[int, int]) -> Image.Image:
+    def _compose_frame(self, record: dict, tile_size: tuple[int, int], frame_idx: int) -> Image.Image:
         tile_w, tile_h = tile_size
         canvas = Image.new("RGB", (tile_w * 2, tile_h * 2), self.background)
 
@@ -412,12 +427,155 @@ class DatasetVideoComposer:
             canvas.paste(aerial.resize((tile_w, tile_h)), (tile_w, tile_h))
             aerial.close()
 
-        if risk_value is not None:
+        if self.risk_tile_mode == "graph":
+            risk_tile = self._render_risk_graph_tile(frame_idx, tile_w, tile_h)
+            if risk_tile is not None:
+                canvas.paste(risk_tile, (tile_w, 0))
+        elif risk_value is not None:
             risk_tile = self._render_risk_tile(risk_value, tile_w, tile_h)
             if risk_tile is not None:
                 canvas.paste(risk_tile, (tile_w, 0))
 
         return canvas
+
+    @staticmethod
+    def _safe_float(value, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _prepare_risk_graph_cache(self, records: list[dict]) -> None:
+        distances: list[float] = []
+        true_risks: list[float] = []
+        calc_risks: list[float] = []
+
+        prev_x = None
+        prev_y = None
+        total_d = 0.0
+
+        for rec in records:
+            ego_pos = rec.get("ego", {}).get("position", {})
+            x = ego_pos.get("x", None)
+            y = ego_pos.get("y", None)
+
+            if x is not None and y is not None:
+                x = self._safe_float(x)
+                y = self._safe_float(y)
+                if prev_x is not None and prev_y is not None:
+                    total_d += math.hypot(x - prev_x, y - prev_y)
+                prev_x, prev_y = x, y
+
+            distances.append(total_d)
+            true_risks.append(self._safe_float(rec.get("ground_truth_risk", 0.0), default=0.0))
+
+            calc_val = None
+            if self.calculated_risk_fn is not None:
+                try:
+                    calc_val = float(self.calculated_risk_fn(rec))
+                except Exception:
+                    calc_val = None
+            elif self.calculated_risk_key:
+                calc_val = rec.get(self.calculated_risk_key, None)
+
+            calc_risks.append(np.nan if calc_val is None else self._safe_float(calc_val))
+
+        self._distance_axis = np.array(distances, dtype=np.float64)
+        self._true_risk_series = np.array(true_risks, dtype=np.float64)
+        self._calculated_risk_series = np.array(calc_risks, dtype=np.float64)
+
+    @staticmethod
+    def _draw_curve(draw: ImageDraw.ImageDraw, points: list[tuple[float, float]],
+                    color: tuple[int, int, int], width: int = 2) -> None:
+        if len(points) < 2:
+            return
+        draw.line(points, fill=color, width=width)
+
+    def _render_risk_graph_tile(self, frame_idx: int, width: int, height: int) -> Image.Image | None:
+        if self._distance_axis is None or self._true_risk_series is None:
+            return None
+        if frame_idx >= len(self._distance_axis):
+            return None
+
+        tile = Image.new("RGB", (width, height), (18, 18, 18))
+        draw = ImageDraw.Draw(tile)
+
+        margin_left = max(28, width // 10)
+        margin_right = max(14, width // 16)
+        margin_top = max(22, height // 10)
+        margin_bottom = max(24, height // 8)
+
+        x0 = margin_left
+        y0 = margin_top
+        x1 = width - margin_right
+        y1 = height - margin_bottom
+        if x1 <= x0 + 4 or y1 <= y0 + 4:
+            return tile
+
+        draw.rectangle([(x0, y0), (x1, y1)], outline=(210, 210, 210), width=1)
+
+        d = self._distance_axis[:frame_idx + 1]
+        r_true = self._true_risk_series[:frame_idx + 1]
+        r_calc = self._calculated_risk_series[:frame_idx + 1] if self._calculated_risk_series is not None else None
+
+        x_max = max(1e-6, float(d[-1]))
+        if self.risk_graph_ylim is not None:
+            y_min = float(self.risk_graph_ylim[0])
+            y_max = max(y_min + 1e-6, float(self.risk_graph_ylim[1]))
+        else:
+            values = [float(np.nanmax(r_true)) if r_true.size else 0.0]
+            if r_calc is not None and np.any(np.isfinite(r_calc)):
+                values.append(float(np.nanmax(r_calc)))
+            y_min = 0.0
+            y_max = max(1.0, max(values) * 1.1)
+
+        def to_xy(dist_v: float, risk_v: float) -> tuple[float, float]:
+            px = x0 + (dist_v / x_max) * (x1 - x0)
+            norm = (risk_v - y_min) / max(1e-6, (y_max - y_min))
+            py = y1 - norm * (y1 - y0)
+            return px, py
+
+        true_points = [to_xy(float(dd), float(rr)) for dd, rr in zip(d, r_true)]
+        self._draw_curve(draw, true_points, color=(0, 220, 0), width=3)
+
+        if r_calc is not None and np.any(np.isfinite(r_calc)):
+            calc_points: list[tuple[float, float]] = []
+            for dd, rr in zip(d, r_calc):
+                if np.isfinite(rr):
+                    calc_points.append(to_xy(float(dd), float(rr)))
+            self._draw_curve(draw, calc_points, color=(255, 170, 0), width=2)
+
+        cur_x, cur_y = true_points[-1]
+        marker_r = max(2, width // 140)
+        draw.ellipse([(cur_x - marker_r, cur_y - marker_r), (cur_x + marker_r, cur_y + marker_r)],
+                     fill=(0, 255, 0), outline=(0, 255, 0))
+
+        try:
+            font_title = ImageFont.truetype("arial.ttf", max(11, int(min(width, height) * 0.055)))
+            font_small = ImageFont.truetype("arial.ttf", max(9, int(min(width, height) * 0.035)))
+        except OSError:
+            font_title = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+
+        draw.text((x0, max(2, y0 - 18)), "Risk vs Distance", fill=(235, 235, 235), font=font_title)
+        draw.text((x0, y1 + 4), "0 m", fill=(190, 190, 190), font=font_small)
+        xlab = f"{d[-1]:.1f} m"
+        xlab_w = draw.textbbox((0, 0), xlab, font=font_small)[2]
+        draw.text((x1 - xlab_w, y1 + 4), xlab, fill=(190, 190, 190), font=font_small)
+
+        y_top = f"{y_max:.2f}"
+        y_bot = f"{y_min:.2f}"
+        draw.text((2, y0 - 2), y_top, fill=(190, 190, 190), font=font_small)
+        draw.text((2, y1 - 10), y_bot, fill=(190, 190, 190), font=font_small)
+
+        legend_y = y0 + 4
+        draw.line([(x0 + 6, legend_y + 6), (x0 + 26, legend_y + 6)], fill=(0, 220, 0), width=3)
+        draw.text((x0 + 30, legend_y), "true", fill=(220, 220, 220), font=font_small)
+        if r_calc is not None and np.any(np.isfinite(r_calc)):
+            draw.line([(x0 + 78, legend_y + 6), (x0 + 98, legend_y + 6)], fill=(255, 170, 0), width=2)
+            draw.text((x0 + 102, legend_y), "calculated", fill=(220, 220, 220), font=font_small)
+
+        return tile
 
     def _render_risk_tile(self, risk_value: float, width: int, height: int) -> Image.Image | None:
         try:
@@ -670,6 +828,36 @@ class DummyRiskVisualizer:
         self.s_mu.on_changed(update)
         self.s_vis.on_changed(update)
         self.s_speed.on_changed(update)
+
+
+def compose_trial_dataset_video(jsonl_path: str,
+                                output_name: str = "trial_dataset_video.mp4",
+                                fps: int = 10,
+                                calculated_risk_key: str | None = "predicted_risk",
+                                calculated_risk_fn: Callable[[dict], float] | None = None,
+                                risk_graph_ylim: tuple[float, float] | None = None) -> str:
+    """
+    Build a 2x2 trial video from a trial dataset JSONL using a risk-vs-distance plot
+    in the top-right tile.
+
+    :param jsonl_path: Path to trial dataset JSONL.
+    :param output_name: Output mp4 filename.
+    :param fps: Video framerate.
+    :param calculated_risk_key: Optional record key for overlay curve (e.g. 'predicted_risk').
+    :param calculated_risk_fn: Optional function that computes a risk value from each record.
+        If provided, it takes precedence over calculated_risk_key.
+    :param risk_graph_ylim: Optional fixed y-limits for the risk graph as (ymin, ymax).
+    :returns: Full path to the created video.
+    """
+    composer = DatasetVideoComposer(
+        jsonl_path=jsonl_path,
+        fps=fps,
+        risk_tile_mode="graph",
+        calculated_risk_key=calculated_risk_key,
+        calculated_risk_fn=calculated_risk_fn,
+        risk_graph_ylim=risk_graph_ylim,
+    )
+    return composer.build_video(output_name=output_name)
 
 if __name__ == "__main__":
     
