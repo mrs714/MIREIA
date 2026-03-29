@@ -26,3 +26,13 @@ class Config:
 
     # Reproducibility
     RANDOM_SEED: int = int(os.getenv('MIREIA_RANDOM_SEED', 42))
+
+    # Simulation and recording cadence defaults
+    SIM_FIXED_DELTA_SECONDS: float = float(os.getenv('MIREIA_SIM_FIXED_DELTA_SECONDS', 0.05))
+    RECORD_EVERY_N_TICKS: int = int(os.getenv('MIREIA_RECORD_EVERY_N_TICKS', 5))
+    RECORDING_FPS: int = int(os.getenv('MIREIA_RECORDING_FPS', 4))
+
+    # Online temporal inference defaults
+    INFERENCE_SEQUENCE_LENGTH: int = int(os.getenv('MIREIA_INFERENCE_SEQUENCE_LENGTH', 16))
+    INFERENCE_BURN_IN_FRAMES: int = int(os.getenv('MIREIA_INFERENCE_BURN_IN_FRAMES', 12))
+    INFERENCE_EVAL_FRAMES: int = int(os.getenv('MIREIA_INFERENCE_EVAL_FRAMES', 4))

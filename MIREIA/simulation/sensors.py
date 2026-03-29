@@ -124,6 +124,28 @@ class SensorManager:
             camera.stop()
         return image
 
+    def __capture_pair(self, camera_a: carla.Actor, camera_b: carla.Actor, tick_fn, timeout: float):
+        queue_a: queue.Queue = queue.Queue()
+        queue_b: queue.Queue = queue.Queue()
+
+        def callback_a(image):
+            queue_a.put(image)
+
+        def callback_b(image):
+            queue_b.put(image)
+
+        camera_a.listen(callback_a)
+        camera_b.listen(callback_b)
+        try:
+            if tick_fn is not None:
+                tick_fn()
+            image_a = queue_a.get(timeout=timeout)
+            image_b = queue_b.get(timeout=timeout)
+        finally:
+            camera_a.stop()
+            camera_b.stop()
+        return image_a, image_b
+
     def __save_snapshots(self, camera: carla.Actor, camera_name: str, duration: float = None):
         # Starts the camera callback function and saves images until the simulation ends or the camera is stopped
 
@@ -146,6 +168,32 @@ class SensorManager:
             save_path = f"{self.__save_dir}/ego_{image.frame}.png"
         image.save_to_disk(save_path)
         return save_path
+
+    def save_synced_frames(self,
+                           ego_save_path: str | None = None,
+                           map_save_path: str | None = None,
+                           tick_fn=None,
+                           timeout: float = 2.0) -> tuple[str, str]:
+        if self.__map_camera is None:
+            raise RuntimeError("Map camera is disabled or not initialized.")
+        if tick_fn is None:
+            tick_fn = self.__world.tick
+
+        ego_image, map_image = self.__capture_pair(
+            self.__ego_camera,
+            self.__map_camera,
+            tick_fn=tick_fn,
+            timeout=timeout,
+        )
+
+        if ego_save_path is None:
+            ego_save_path = f"{self.__save_dir}/ego_{ego_image.frame}.png"
+        if map_save_path is None:
+            map_save_path = f"{self.__save_dir}/map_{map_image.frame}.png"
+
+        ego_image.save_to_disk(ego_save_path)
+        map_image.save_to_disk(map_save_path)
+        return ego_save_path, map_save_path
 
     def save_ego_frames(self, duration: float = None):
         self.__save_snapshots(self.__ego_camera, "ego", duration)

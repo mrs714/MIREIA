@@ -29,7 +29,7 @@ class WorldManager:
 
     def __init__(self, scenario: Scenario | None = None,
                  sync_mode: bool = True,
-                 fixed_delta: float = 0.05,
+                 fixed_delta: float = Config.SIM_FIXED_DELTA_SECONDS,
                  verbose: bool = False):
         """
         :param scenario: Initial scenario to load. If None the manager will
@@ -297,7 +297,8 @@ class WorldManager:
         )
         return save_path
 
-    def compose_dataset_video(self, fps: int = 10, dataset_jsonl_path: str | None = None) -> str:
+    def compose_dataset_video(self, fps: int = Config.RECORDING_FPS,
+                              dataset_jsonl_path: str | None = None) -> str:
         """
         Build a dataset video from the current scenario's dataset JSONL.
 
@@ -442,29 +443,22 @@ class WorldManager:
         return self.sensor_manager
 
     # ── Simulation stepping ─────────────────────────────────────────
-    def tick(self, ground_truth_risk: float | None = None,
-             rgb_image_path: str = "",
-             topdown_image_path: str = "",
-             risk_map_image_path: str = "",
-             extra_fields: dict | None = None) -> dict | None:
+    def log_current_frame(self,
+                          ground_truth_risk: float | None = None,
+                          rgb_image_path: str = "",
+                          topdown_image_path: str = "",
+                          risk_map_image_path: str = "",
+                          extra_fields: dict | None = None) -> dict | None:
         """
-        Advance the simulation by one step, update the bridge state,
-        and — if recording is enabled — log the frame.
+        Log a frame using the current bridge/world state without advancing CARLA.
 
-        :param ground_truth_risk: Risk label for this frame.  Required when
-            a DatasetLogger is active; ignored otherwise.
+        :param ground_truth_risk: Risk label for this frame.
         :param rgb_image_path: Relative path to the saved RGB image.
         :param topdown_image_path: Relative path to the saved top-down image.
-        :param risk_map_image_path: Relative path to the static risk map image.
+        :param risk_map_image_path: Relative path to the static/per-frame risk map image.
+        :param extra_fields: Optional additional payload for the JSONL record.
         :returns: The logged record dict, or *None* if recording is off.
         """
-        if self.traffic_handler is not None:
-            self.traffic_handler.run_ego_controller_step()
-
-        self.world.tick()
-        if self.bridge is not None:
-            self.bridge.update()
-
         record = None
         if self.dataset_logger is not None and self.bridge is not None:
             if not self._record_topdown:
@@ -490,6 +484,37 @@ class WorldManager:
                 extra_fields=extra_fields,
             )
         return record
+
+    def tick(self, ground_truth_risk: float | None = None,
+             rgb_image_path: str = "",
+             topdown_image_path: str = "",
+             risk_map_image_path: str = "",
+             extra_fields: dict | None = None) -> dict | None:
+        """
+        Advance the simulation by one step, update the bridge state,
+        and — if recording is enabled — log the frame.
+
+        :param ground_truth_risk: Risk label for this frame.  Required when
+            a DatasetLogger is active; ignored otherwise.
+        :param rgb_image_path: Relative path to the saved RGB image.
+        :param topdown_image_path: Relative path to the saved top-down image.
+        :param risk_map_image_path: Relative path to the static risk map image.
+        :returns: The logged record dict, or *None* if recording is off.
+        """
+        if self.traffic_handler is not None:
+            self.traffic_handler.run_ego_controller_step()
+
+        self.world.tick()
+        if self.bridge is not None:
+            self.bridge.update()
+
+        return self.log_current_frame(
+            ground_truth_risk=ground_truth_risk,
+            rgb_image_path=rgb_image_path,
+            topdown_image_path=topdown_image_path,
+            risk_map_image_path=risk_map_image_path,
+            extra_fields=extra_fields,
+        )
 
     # ── Teardown ────────────────────────────────────────────────────
     def __teardown_scenario(self):

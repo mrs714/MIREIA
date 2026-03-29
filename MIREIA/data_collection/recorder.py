@@ -215,7 +215,16 @@ class DatasetLogger:
         if self._static_meta:
             record["meta"] = dict(self._static_meta)
         if extra_fields:
-            record["extra_fields"] = dict(extra_fields)
+            extra = dict(extra_fields)
+            for key in (
+                "predicted_risk",
+                "predicted_risk_window",
+                "predicted_risk_ready",
+                "predicted_risk_buffer_size",
+            ):
+                if key in extra:
+                    record[key] = extra[key]
+            record["extra_fields"] = extra
 
         return record
 

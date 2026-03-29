@@ -90,10 +90,18 @@ def train_model(
     model_type: str = "single",
     m_eval_frames: int = 5,
     grad_clip: Optional[float] = None,
+    use_amp: bool = False,
+    grad_accum_steps: int = 1,
 ) -> Dict[str, Iterable[float]]:
     criterion = criterion or nn.MSELoss()
     if history is None:
         history = {"train_loss": [], "val_loss": []}
+
+    if grad_accum_steps <= 0:
+        raise ValueError("grad_accum_steps must be >= 1")
+
+    amp_enabled = bool(use_amp and device.type == "cuda")
+    scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
 
     for epoch in range(start_epoch, start_epoch + epochs):
         epoch_start = torch.cuda.Event(enable_timing=True)
@@ -105,6 +113,12 @@ def train_model(
         total_samples = 0
         batch_times = []
         total_batches = len(train_loader)
+        effective_total_batches = (
+            min(total_batches, max_batches_per_epoch)
+            if max_batches_per_epoch is not None
+            else total_batches
+        )
+        optimizer.zero_grad(set_to_none=True)
 
         for batch_idx, (batch_x, batch_y) in enumerate(train_loader, start=1):
             batch_start = torch.cuda.Event(enable_timing=True)
@@ -113,21 +127,39 @@ def train_model(
 
             batch_x = batch_x.to(device, non_blocking=True)
             batch_y = batch_y.to(device, non_blocking=True)
-            optimizer.zero_grad()
 
-            if model_type == "seq2seq":
-                preds = model(batch_x, m_eval_frames=m_eval_frames)
+            with torch.autocast(device_type=device.type, enabled=amp_enabled):
+                if model_type == "seq2seq":
+                    preds = model(batch_x, m_eval_frames=m_eval_frames)
+                else:
+                    preds = model(batch_x)
+
+                target = select_targets(batch_y, preds, model_type, m_eval_frames)
+                loss = criterion(preds, target)
+
+            step_loss = loss / grad_accum_steps
+            if amp_enabled:
+                scaler.scale(step_loss).backward()
             else:
-                preds = model(batch_x)
+                step_loss.backward()
 
-            target = select_targets(batch_y, preds, model_type, m_eval_frames)
-            loss = criterion(preds, target)
-            loss.backward()
+            should_step = (
+                (batch_idx % grad_accum_steps == 0)
+                or (batch_idx == effective_total_batches)
+            )
+            if should_step:
+                if grad_clip is not None:
+                    if amp_enabled:
+                        scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
 
-            if grad_clip is not None:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                if amp_enabled:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
 
-            optimizer.step()
             running_loss += loss.item() * batch_x.size(0)
             total_samples += batch_x.size(0)
 
@@ -138,10 +170,10 @@ def train_model(
             if batch_idx == 1 or batch_idx % log_every == 0:
                 avg_loss = running_loss / max(1, total_samples)
                 avg_batch_time = sum(batch_times) / max(1, len(batch_times))
-                remaining_batches = total_batches - batch_idx
+                remaining_batches = effective_total_batches - batch_idx
                 eta_seconds = remaining_batches * avg_batch_time
                 print(
-                    f"Batch {batch_idx}/{total_batches} | "
+                    f"Batch {batch_idx}/{effective_total_batches} | "
                     f"avg loss: {avg_loss:.6f} | "
                     f"batch shape: {tuple(batch_x.shape)} | "
                     f"ETA: {eta_seconds:.1f}s ({eta_seconds/60:.1f}m)"
@@ -162,6 +194,7 @@ def train_model(
                 criterion=criterion,
                 model_type=model_type,
                 m_eval_frames=m_eval_frames,
+                use_amp=use_amp,
             )
             history["val_loss"].append(val_loss)
             print(f"Val loss:   {val_loss:.6f}")
@@ -181,22 +214,25 @@ def evaluate_model(
     criterion: Optional[nn.Module] = None,
     model_type: str = "single",
     m_eval_frames: int = 5,
+    use_amp: bool = False,
 ) -> float:
     criterion = criterion or nn.MSELoss()
     model.eval()
     val_loss = 0.0
     val_samples = 0
+    amp_enabled = bool(use_amp and device.type == "cuda")
 
     with torch.no_grad():
         for batch_x, batch_y in val_loader:
             batch_x = batch_x.to(device, non_blocking=True)
             batch_y = batch_y.to(device, non_blocking=True)
-            if model_type == "seq2seq":
-                preds = model(batch_x, m_eval_frames=m_eval_frames)
-            else:
-                preds = model(batch_x)
-            target = select_targets(batch_y, preds, model_type, m_eval_frames)
-            loss = criterion(preds, target)
+            with torch.autocast(device_type=device.type, enabled=amp_enabled):
+                if model_type == "seq2seq":
+                    preds = model(batch_x, m_eval_frames=m_eval_frames)
+                else:
+                    preds = model(batch_x)
+                target = select_targets(batch_y, preds, model_type, m_eval_frames)
+                loss = criterion(preds, target)
             val_loss += loss.item() * batch_x.size(0)
             val_samples += batch_x.size(0)
 

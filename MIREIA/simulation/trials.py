@@ -6,7 +6,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import carla
 import numpy as np
@@ -16,6 +16,9 @@ from MIREIA.data_collection.dataset_utils import load_jsonl_records
 from MIREIA.simulation.scenarios import Scenario, get_default_ego_camera_position
 from MIREIA.simulation.simple_route_controller import SimpleRouteController
 from MIREIA.simulation.world_manager import WorldManager
+
+if TYPE_CHECKING:
+    from MIREIA.perception.inference import StreamingRiskPredictor
 
 
 @dataclass
@@ -35,7 +38,7 @@ class TrialDefinition:
     safe_vehicles: bool = True
     seed: int = 42
     sync_mode: bool = True
-    fixed_delta: float = 0.05
+    fixed_delta: float = Config.SIM_FIXED_DELTA_SECONDS
 
     @property
     def folder_path(self) -> str:
@@ -108,6 +111,12 @@ class TrialRunSummary:
     predicted_risk_auc: float | None = None
     finished: bool = False
     metadata: dict = field(default_factory=dict)
+
+    def load_from_json(run_path: str) -> "TrialRunSummary":
+        json_path = os.path.join(run_path, "summary.json")
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return TrialRunSummary(**data)
 
 
 class TrialRunner:
@@ -198,15 +207,22 @@ class TrialRunner:
         trial: TrialDefinition,
         ego_cfg: EgoTrialConfig,
         max_steps: int = 10000,
-        image_stride: int = 1,
+        image_stride: int = Config.RECORD_EVERY_N_TICKS,
         store_topdown_images: bool = False,
+        topdown_resolution: tuple[int, int] = (100, 100),
+        topdown_fov: float = 90.0,
+        topdown_align_risk_rotation: bool = True,
         store_risk_frame_images: bool = False,
         store_static_risk_map: bool = False,
         draw_debug_every_tick: bool = True,
         draw_debug_skip_after_capture_ticks: int = 1,
         draw_debug_skip_before_capture_ticks: int = 0,
         predictor_fn: Callable[[dict], float] | None = None,
+        streaming_predictor: StreamingRiskPredictor | None = None,
     ) -> TrialRunSummary:
+        if predictor_fn is not None and streaming_predictor is not None:
+            raise ValueError("Use either predictor_fn or streaming_predictor, not both")
+
         image_stride = max(1, int(image_stride))
         trial.save()
         run_id, run_path = trial.create_subtrial_folder(ego_cfg.name)
@@ -250,8 +266,18 @@ class TrialRunner:
         )
         try:
             wm.load_scenario(scenario)
-            wm.setup_sensors(save_dir=str(images_dir), enable_map_camera=store_topdown_images)
-            self._set_spectator_like_topdown(wm)
+            wm.setup_sensors(
+                save_dir=str(images_dir),
+                enable_map_camera=store_topdown_images,
+                map_resolution=topdown_resolution,
+                map_fov=topdown_fov,
+                align_risk_rotation=topdown_align_risk_rotation,
+            )
+            self._set_spectator_like_topdown(
+                wm,
+                map_fov=topdown_fov,
+                map_yaw=-90.0 if topdown_align_risk_rotation else 0.0,
+            )
             wm.enable_recording(
                 append=False,
                 include_topdown=store_topdown_images,
@@ -264,6 +290,12 @@ class TrialRunner:
                     "route_start": list(trial.route_start),
                     "route_end": list(trial.route_end),
                     "ego_config": asdict(ego_cfg),
+                    "topdown_camera": {
+                        "enabled": store_topdown_images,
+                        "resolution": list(topdown_resolution),
+                        "fov": topdown_fov,
+                        "align_risk_rotation": topdown_align_risk_rotation,
+                    },
                 },
             )
 
@@ -280,6 +312,8 @@ class TrialRunner:
             started = time.time()
             finished = False
             route_start = carla.Location(*trial.route_start)
+            if streaming_predictor is not None:
+                streaming_predictor.reset()
 
             for step in range(max_steps):
                 rgb_path = images_dir / f"rgb_{step:06d}.png"
@@ -304,16 +338,20 @@ class TrialRunner:
                         life_time=0.08,
                     )
 
-                def _tick_and_log() -> None:
-                    wm.tick(
+                def _log_current_capture(prediction_fields: dict | None = None) -> None:
+                    extra_fields = {
+                        "trial_step": step,
+                        "target_speed_kmh": controller.get_last_applied_target_speed(),
+                    }
+                    if prediction_fields:
+                        extra_fields.update(prediction_fields)
+
+                    wm.log_current_frame(
                         ground_truth_risk=None,
                         rgb_image_path=rel_rgb,
                         topdown_image_path=rel_topdown,
                         risk_map_image_path=rel_risk,
-                        extra_fields={
-                            "trial_step": step,
-                            "target_speed_kmh": controller.get_last_applied_target_speed(),
-                        },
+                        extra_fields=extra_fields,
                     )
 
                 def _tick_without_log() -> None:
@@ -323,15 +361,33 @@ class TrialRunner:
                     if wm.bridge is not None:
                         wm.bridge.update()
 
+                def _predict_streaming_risk() -> dict:
+                    if streaming_predictor is None:
+                        return {}
+
+                    prediction = streaming_predictor.predict_from_image_path(str(rgb_path))
+                    return {
+                        "predicted_risk": prediction.latest_risk,
+                        "predicted_risk_window": prediction.risk_window,
+                        "predicted_risk_ready": prediction.ready,
+                        "predicted_risk_buffer_size": prediction.buffer_size,
+                    }
+
                 if step % image_stride == 0:
-                    wm.sensor_manager.save_ego_frame(save_path=str(rgb_path), tick_fn=_tick_and_log)
                     if store_topdown_images:
-                        wm.sensor_manager.save_map_frame(
-                            save_path=str(topdown_path),
+                        wm.sensor_manager.save_synced_frames(
+                            ego_save_path=str(rgb_path),
+                            map_save_path=str(topdown_path),
                             tick_fn=_tick_without_log,
                         )
+                    else:
+                        wm.sensor_manager.save_ego_frame(save_path=str(rgb_path), tick_fn=_tick_without_log)
+
                     if store_risk_frame_images:
                         wm.save_risk_frame_image(save_path=str(risk_frame_path))
+
+                    prediction_fields = _predict_streaming_risk()
+                    _log_current_capture(prediction_fields=prediction_fields)
                 else:
                     _tick_without_log()
 
@@ -371,14 +427,18 @@ class TrialRunner:
         trial: TrialDefinition,
         ego_configs: list[EgoTrialConfig],
         max_steps: int = 10000,
-        image_stride: int = 1,
+        image_stride: int = Config.RECORD_EVERY_N_TICKS,
         store_topdown_images: bool = False,
+        topdown_resolution: tuple[int, int] = (100, 100),
+        topdown_fov: float = 90.0,
+        topdown_align_risk_rotation: bool = True,
         store_risk_frame_images: bool = False,
         store_static_risk_map: bool = False,
         draw_debug_every_tick: bool = True,
         draw_debug_skip_after_capture_ticks: int = 1,
         draw_debug_skip_before_capture_ticks: int = 0,
         predictor_fn: Callable[[dict], float] | None = None,
+        streaming_predictor: StreamingRiskPredictor | None = None,
     ) -> list[TrialRunSummary]:
         summaries: list[TrialRunSummary] = []
         for ego_cfg in ego_configs:
@@ -389,12 +449,16 @@ class TrialRunner:
                     max_steps=max_steps,
                     image_stride=image_stride,
                     store_topdown_images=store_topdown_images,
+                    topdown_resolution=topdown_resolution,
+                    topdown_fov=topdown_fov,
+                    topdown_align_risk_rotation=topdown_align_risk_rotation,
                     store_risk_frame_images=store_risk_frame_images,
                     store_static_risk_map=store_static_risk_map,
                     draw_debug_every_tick=draw_debug_every_tick,
                     draw_debug_skip_after_capture_ticks=draw_debug_skip_after_capture_ticks,
                     draw_debug_skip_before_capture_ticks=draw_debug_skip_before_capture_ticks,
                     predictor_fn=predictor_fn,
+                    streaming_predictor=streaming_predictor,
                 )
             )
         return summaries

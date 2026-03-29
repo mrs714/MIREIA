@@ -19,6 +19,7 @@ from MIREIA.core.physics import RiskOracle
 from MIREIA.data_collection.dataset_utils import load_jsonl_records
 from MIREIA.analysis.plotter import Grid, RiskGrid
 from MIREIA.simulation.bridge import EgoKinematics, DynamicObstacleKinematics, EnvironmentState, SimulationBridge
+from MIREIA.config import Config
 
 from carla import World
 
@@ -154,17 +155,15 @@ class RiskGridVisualizer:
         :param grid_size: Size of the risk grid in meters.
         :param grid_resolution: Resolution of the risk grid in meters.
         :param fps: Frames per second of the output video. If None (default),
-            derived from the world's fixed_delta_seconds so the video plays
-            back in real time.
+            uses Config.RECORDING_FPS.
         :param dpi: Resolution of each frame.
         :param baked_static_risk: Optional pre-baked static risk grid. If provided,
             road and static obstacle risk is sampled via bilinear interpolation
             instead of being recomputed every frame (much faster).
         """
-        # Derive FPS from simulation tick step for real-time playback
+        # Keep output cadence aligned with project recording defaults.
         if fps is None:
-            delta = self.world.get_settings().fixed_delta_seconds
-            fps = int(round(1.0 / delta)) if delta and delta > 0 else 10
+            fps = Config.RECORDING_FPS
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(10, 10))
 
@@ -338,7 +337,7 @@ class DatasetVideoComposer:
     - bottom-left: risk map
     """
 
-    def __init__(self, jsonl_path: str, fps: int = 10, background=(0, 0, 0),
+    def __init__(self, jsonl_path: str, fps: int = Config.RECORDING_FPS, background=(0, 0, 0),
                  risk_tile_mode: str = "number",
                  calculated_risk_key: str | None = None,
                  calculated_risk_fn: Callable[[dict], float] | None = None,
@@ -665,6 +664,391 @@ class DatasetVideoComposer:
         subprocess.run(cmd, check=True)
 
 
+class TrialComparisonVideoComposer:
+    """
+    Compose a 2x2 comparison video from two trial dataset JSONL files.
+
+    Layout:
+    - top-left: dashcam run A
+    - top-right: dashcam run B
+    - bottom-left: overlaid risk-vs-distance curves
+    - bottom-right: overall risk/m metrics for both runs
+    """
+
+    def __init__(self,
+                 jsonl_path_a: str,
+                 jsonl_path_b: str,
+                 fps: int = Config.RECORDING_FPS,
+                 background: tuple[int, int, int] = (0, 0, 0),
+                 label_a: str = "run_a",
+                 label_b: str = "run_b",
+                 calculated_risk_key: str | None = None,
+                 calculated_risk_fn_a: Callable[[dict], float] | None = None,
+                 calculated_risk_fn_b: Callable[[dict], float] | None = None,
+                 risk_graph_ylim: tuple[float, float] | None = None):
+        self.jsonl_path_a = Path(jsonl_path_a)
+        self.jsonl_path_b = Path(jsonl_path_b)
+        self.dataset_dir_a = self.jsonl_path_a.parent
+        self.dataset_dir_b = self.jsonl_path_b.parent
+        self.output_dir = self.dataset_dir_a
+        self.fps = fps
+        self.background = background
+        self.label_a = label_a
+        self.label_b = label_b
+        self.calculated_risk_key = calculated_risk_key
+        self.calculated_risk_fn_a = calculated_risk_fn_a
+        self.calculated_risk_fn_b = calculated_risk_fn_b
+        self.risk_graph_ylim = risk_graph_ylim
+
+        self._distance_a: np.ndarray | None = None
+        self._distance_b: np.ndarray | None = None
+        self._true_risk_a: np.ndarray | None = None
+        self._true_risk_b: np.ndarray | None = None
+        self._calc_risk_a: np.ndarray | None = None
+        self._calc_risk_b: np.ndarray | None = None
+        self._risk_per_meter_a: float = 0.0
+        self._risk_per_meter_b: float = 0.0
+        self._traveled_m_a: float = 0.0
+        self._traveled_m_b: float = 0.0
+
+    def build_video(self, output_name: str = "trial_comparison_video.mp4") -> str:
+        frames_dir = self.output_dir / "_comparison_video_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+
+        records_a = load_jsonl_records(str(self.jsonl_path_a))
+        records_b = load_jsonl_records(str(self.jsonl_path_b))
+        if not records_a:
+            raise RuntimeError(f"No frames found in JSONL A: {self.jsonl_path_a}")
+        if not records_b:
+            raise RuntimeError(f"No frames found in JSONL B: {self.jsonl_path_b}")
+
+        tile_size = self._infer_tile_size(records_a, records_b)
+        if tile_size is None:
+            raise RuntimeError("No dashcam image paths found in either JSONL.")
+
+        self._prepare_series_cache(records_a, records_b)
+        metric_tile = self._render_metrics_tile(tile_size[0], tile_size[1])
+
+        n_frames = max(len(records_a), len(records_b))
+        for idx in range(n_frames):
+            rec_a = records_a[min(idx, len(records_a) - 1)]
+            rec_b = records_b[min(idx, len(records_b) - 1)]
+            frame = self._compose_frame(rec_a, rec_b, tile_size, idx, metric_tile)
+            frame_path = frames_dir / f"frame_{idx:06d}.png"
+            frame.save(frame_path)
+
+        output_path = self.output_dir / output_name
+        self._encode_video(frames_dir, output_path)
+        shutil.rmtree(frames_dir, ignore_errors=True)
+        return str(output_path)
+
+    @staticmethod
+    def _safe_float(value, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _measure_multiline(draw: ImageDraw.ImageDraw, text: str,
+                           font: ImageFont.ImageFont, spacing: int = 2) -> tuple[int, int]:
+        lines = text.split("\n")
+        widths = []
+        heights = []
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            widths.append(bbox[2] - bbox[0])
+            heights.append(bbox[3] - bbox[1])
+        text_w = max(widths) if widths else 0
+        text_h = sum(heights) + spacing * max(0, len(lines) - 1)
+        return text_w, text_h
+
+    def _load_image(self, dataset_dir: Path, rel_path: str) -> Image.Image | None:
+        if not rel_path:
+            return None
+        img_path = dataset_dir / rel_path
+        if not img_path.exists():
+            return None
+        return Image.open(img_path)
+
+    def _infer_tile_size(self, records_a: list[dict], records_b: list[dict]) -> tuple[int, int] | None:
+        for records, dataset_dir in ((records_a, self.dataset_dir_a), (records_b, self.dataset_dir_b)):
+            for record in records:
+                rel = record.get("rgb_image_path") or ""
+                if not rel:
+                    continue
+                img_path = dataset_dir / rel
+                if img_path.exists():
+                    with Image.open(img_path) as img:
+                        return img.size
+        return None
+
+    def _extract_distance_and_risk(self,
+                                   records: list[dict],
+                                   calculated_risk_fn: Callable[[dict], float] | None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        distances: list[float] = []
+        true_risk: list[float] = []
+        calc_risk: list[float] = []
+
+        prev_x = None
+        prev_y = None
+        total_d = 0.0
+
+        for rec in records:
+            ego_pos = rec.get("ego", {}).get("position", {})
+            x = ego_pos.get("x")
+            y = ego_pos.get("y")
+
+            if x is not None and y is not None:
+                x = self._safe_float(x)
+                y = self._safe_float(y)
+                if prev_x is not None and prev_y is not None:
+                    total_d += math.hypot(x - prev_x, y - prev_y)
+                prev_x, prev_y = x, y
+
+            distances.append(total_d)
+            true_risk.append(self._safe_float(rec.get("ground_truth_risk", 0.0), default=0.0))
+
+            calc_val = None
+            if calculated_risk_fn is not None:
+                try:
+                    calc_val = float(calculated_risk_fn(rec))
+                except Exception:
+                    calc_val = None
+            elif self.calculated_risk_key:
+                calc_val = rec.get(self.calculated_risk_key)
+            calc_risk.append(np.nan if calc_val is None else self._safe_float(calc_val))
+
+        return (
+            np.array(distances, dtype=np.float64),
+            np.array(true_risk, dtype=np.float64),
+            np.array(calc_risk, dtype=np.float64),
+        )
+
+    @staticmethod
+    def _compute_risk_per_meter(distance_axis: np.ndarray, risk_series: np.ndarray) -> tuple[float, float]:
+        if distance_axis.size >= 2:
+            seg = np.diff(distance_axis)
+            traveled_m = float(seg.sum())
+        else:
+            seg = np.array([], dtype=np.float64)
+            traveled_m = 0.0
+
+        if seg.size > 0 and risk_series.size >= 2:
+            n = min(seg.size, risk_series.size - 1)
+            risk_distance_integral = float(np.sum(0.5 * (risk_series[:n] + risk_series[1:n + 1]) * seg[:n]))
+        else:
+            risk_distance_integral = 0.0
+
+        risk_per_meter = risk_distance_integral / traveled_m if traveled_m > 0 else 0.0
+        return risk_per_meter, traveled_m
+
+    def _prepare_series_cache(self, records_a: list[dict], records_b: list[dict]) -> None:
+        self._distance_a, self._true_risk_a, self._calc_risk_a = self._extract_distance_and_risk(
+            records_a,
+            self.calculated_risk_fn_a,
+        )
+        self._distance_b, self._true_risk_b, self._calc_risk_b = self._extract_distance_and_risk(
+            records_b,
+            self.calculated_risk_fn_b,
+        )
+
+        self._risk_per_meter_a, self._traveled_m_a = self._compute_risk_per_meter(self._distance_a, self._true_risk_a)
+        self._risk_per_meter_b, self._traveled_m_b = self._compute_risk_per_meter(self._distance_b, self._true_risk_b)
+
+    @staticmethod
+    def _draw_curve(draw: ImageDraw.ImageDraw, points: list[tuple[float, float]],
+                    color: tuple[int, int, int], width: int = 2) -> None:
+        if len(points) < 2:
+            return
+        draw.line(points, fill=color, width=width)
+
+    def _render_overlaid_risk_chart_tile(self, frame_idx: int, width: int, height: int) -> Image.Image:
+        tile = Image.new("RGB", (width, height), (18, 18, 18))
+        draw = ImageDraw.Draw(tile)
+
+        margin_left = max(30, width // 10)
+        margin_right = max(14, width // 16)
+        margin_top = max(22, height // 10)
+        margin_bottom = max(24, height // 8)
+
+        x0 = margin_left
+        y0 = margin_top
+        x1 = width - margin_right
+        y1 = height - margin_bottom
+        draw.rectangle([(x0, y0), (x1, y1)], outline=(210, 210, 210), width=1)
+
+        if self._distance_a is None or self._distance_b is None:
+            return tile
+
+        idx_a = min(frame_idx, max(0, self._distance_a.size - 1))
+        idx_b = min(frame_idx, max(0, self._distance_b.size - 1))
+
+        d_a = self._distance_a[:idx_a + 1]
+        d_b = self._distance_b[:idx_b + 1]
+        r_a = self._true_risk_a[:idx_a + 1] if self._true_risk_a is not None else np.array([], dtype=np.float64)
+        r_b = self._true_risk_b[:idx_b + 1] if self._true_risk_b is not None else np.array([], dtype=np.float64)
+
+        x_max = max(
+            1e-6,
+            float(self._distance_a[-1]) if self._distance_a.size else 0.0,
+            float(self._distance_b[-1]) if self._distance_b.size else 0.0,
+        )
+
+        if self.risk_graph_ylim is not None:
+            y_min = float(self.risk_graph_ylim[0])
+            y_max = max(y_min + 1e-6, float(self.risk_graph_ylim[1]))
+        else:
+            values: list[float] = []
+            if r_a.size:
+                values.append(float(np.nanmax(r_a)))
+            if r_b.size:
+                values.append(float(np.nanmax(r_b)))
+            if self._calc_risk_a is not None and np.any(np.isfinite(self._calc_risk_a)):
+                values.append(float(np.nanmax(self._calc_risk_a)))
+            if self._calc_risk_b is not None and np.any(np.isfinite(self._calc_risk_b)):
+                values.append(float(np.nanmax(self._calc_risk_b)))
+            y_min = 0.0
+            y_max = max(1.0, max(values) * 1.1 if values else 1.0)
+
+        def to_xy(dist_v: float, risk_v: float) -> tuple[float, float]:
+            px = x0 + (dist_v / x_max) * (x1 - x0)
+            norm = (risk_v - y_min) / max(1e-6, (y_max - y_min))
+            py = y1 - norm * (y1 - y0)
+            return px, py
+
+        pts_a = [to_xy(float(dd), float(rr)) for dd, rr in zip(d_a, r_a)]
+        pts_b = [to_xy(float(dd), float(rr)) for dd, rr in zip(d_b, r_b)]
+        self._draw_curve(draw, pts_a, color=(80, 230, 90), width=3)
+        self._draw_curve(draw, pts_b, color=(90, 190, 255), width=3)
+
+        if self._calc_risk_a is not None and self._calc_risk_a.size and np.any(np.isfinite(self._calc_risk_a)):
+            calc_a = self._calc_risk_a[:idx_a + 1]
+            pts_calc_a = [to_xy(float(dd), float(rr)) for dd, rr in zip(d_a, calc_a) if np.isfinite(rr)]
+            self._draw_curve(draw, pts_calc_a, color=(255, 170, 0), width=2)
+        if self._calc_risk_b is not None and self._calc_risk_b.size and np.any(np.isfinite(self._calc_risk_b)):
+            calc_b = self._calc_risk_b[:idx_b + 1]
+            pts_calc_b = [to_xy(float(dd), float(rr)) for dd, rr in zip(d_b, calc_b) if np.isfinite(rr)]
+            self._draw_curve(draw, pts_calc_b, color=(220, 120, 255), width=2)
+
+        if pts_a:
+            xa, ya = pts_a[-1]
+            draw.ellipse([(xa - 2, ya - 2), (xa + 2, ya + 2)], fill=(80, 230, 90), outline=(80, 230, 90))
+        if pts_b:
+            xb, yb = pts_b[-1]
+            draw.ellipse([(xb - 2, yb - 2), (xb + 2, yb + 2)], fill=(90, 190, 255), outline=(90, 190, 255))
+
+        try:
+            font_title = ImageFont.truetype("arial.ttf", max(11, int(min(width, height) * 0.052)))
+            font_small = ImageFont.truetype("arial.ttf", max(9, int(min(width, height) * 0.034)))
+        except OSError:
+            font_title = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+
+        draw.text((x0, max(2, y0 - 18)), "Overlaid Risk vs Distance", fill=(235, 235, 235), font=font_title)
+        draw.text((x0, y1 + 4), "0 m", fill=(190, 190, 190), font=font_small)
+        xmax_label = f"{x_max:.1f} m"
+        xmax_w = draw.textbbox((0, 0), xmax_label, font=font_small)[2]
+        draw.text((x1 - xmax_w, y1 + 4), xmax_label, fill=(190, 190, 190), font=font_small)
+        draw.text((2, y0 - 2), f"{y_max:.2f}", fill=(190, 190, 190), font=font_small)
+        draw.text((2, y1 - 10), f"{y_min:.2f}", fill=(190, 190, 190), font=font_small)
+
+        legend_y = y0 + 4
+        draw.line([(x0 + 4, legend_y + 6), (x0 + 22, legend_y + 6)], fill=(80, 230, 90), width=3)
+        draw.text((x0 + 26, legend_y), f"{self.label_a} true", fill=(220, 220, 220), font=font_small)
+        draw.line([(x0 + 114, legend_y + 6), (x0 + 132, legend_y + 6)], fill=(90, 190, 255), width=3)
+        draw.text((x0 + 136, legend_y), f"{self.label_b} true", fill=(220, 220, 220), font=font_small)
+
+        if self.calculated_risk_key or self.calculated_risk_fn_a or self.calculated_risk_fn_b:
+            legend_y2 = legend_y + 16
+            draw.line([(x0 + 4, legend_y2 + 6), (x0 + 22, legend_y2 + 6)], fill=(255, 170, 0), width=2)
+            draw.text((x0 + 26, legend_y2), f"{self.label_a} calc", fill=(220, 220, 220), font=font_small)
+            draw.line([(x0 + 114, legend_y2 + 6), (x0 + 132, legend_y2 + 6)], fill=(220, 120, 255), width=2)
+            draw.text((x0 + 136, legend_y2), f"{self.label_b} calc", fill=(220, 220, 220), font=font_small)
+
+        return tile
+
+    def _render_metrics_tile(self, width: int, height: int) -> Image.Image:
+        tile = Image.new("RGB", (width, height), (24, 24, 24))
+        draw = ImageDraw.Draw(tile)
+
+        try:
+            title_font = ImageFont.truetype("arial.ttf", max(14, int(min(width, height) * 0.058)))
+            body_font = ImageFont.truetype("arial.ttf", max(11, int(min(width, height) * 0.045)))
+        except OSError:
+            title_font = ImageFont.load_default()
+            body_font = ImageFont.load_default()
+
+        lines = [
+            "Overall Risk per Meter",
+            "",
+            f"{self.label_a}: {self._risk_per_meter_a:.6f}",
+            f"distance: {self._traveled_m_a:.2f} m",
+            "",
+            f"{self.label_b}: {self._risk_per_meter_b:.6f}",
+            f"distance: {self._traveled_m_b:.2f} m",
+            "",
+            f"delta (B-A): {self._risk_per_meter_b - self._risk_per_meter_a:+.6f}",
+        ]
+
+        y = max(14, height // 12)
+        for idx, line in enumerate(lines):
+            if idx == 0:
+                draw.text((12, y), line, fill=(240, 240, 240), font=title_font)
+                y += max(20, height // 10)
+                continue
+            if not line:
+                y += max(10, height // 20)
+                continue
+            draw.text((12, y), line, fill=(220, 220, 220), font=body_font)
+            y += max(16, height // 14)
+
+        return tile
+
+    def _compose_frame(self,
+                       record_a: dict,
+                       record_b: dict,
+                       tile_size: tuple[int, int],
+                       frame_idx: int,
+                       metrics_tile: Image.Image) -> Image.Image:
+        tile_w, tile_h = tile_size
+        canvas = Image.new("RGB", (tile_w * 2, tile_h * 2), self.background)
+
+        dashcam_a = self._load_image(self.dataset_dir_a, record_a.get("rgb_image_path", ""))
+        dashcam_b = self._load_image(self.dataset_dir_b, record_b.get("rgb_image_path", ""))
+
+        if dashcam_a is not None:
+            canvas.paste(dashcam_a.resize((tile_w, tile_h)), (0, 0))
+            dashcam_a.close()
+        if dashcam_b is not None:
+            canvas.paste(dashcam_b.resize((tile_w, tile_h)), (tile_w, 0))
+            dashcam_b.close()
+
+        graph_tile = self._render_overlaid_risk_chart_tile(frame_idx, tile_w, tile_h)
+        canvas.paste(graph_tile, (0, tile_h))
+        canvas.paste(metrics_tile, (tile_w, tile_h))
+        return canvas
+
+    def _encode_video(self, frames_dir: Path, output_path: Path):
+        if output_path.exists():
+            output_path.unlink()
+
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            raise RuntimeError("ffmpeg not found in PATH. Please install ffmpeg or add it to PATH.")
+
+        cmd = [
+            ffmpeg_path,
+            "-y",
+            "-framerate", str(self.fps),
+            "-i", str(frames_dir / "frame_%06d.png"),
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            str(output_path),
+        ]
+        subprocess.run(cmd, check=True)
+
+
 class DummyRiskVisualizer:
     def __init__(self):
         self.oracle = RiskOracle()
@@ -832,7 +1216,7 @@ class DummyRiskVisualizer:
 
 def compose_trial_dataset_video(jsonl_path: str,
                                 output_name: str = "trial_dataset_video.mp4",
-                                fps: int = 10,
+                                fps: int = Config.RECORDING_FPS,
                                 calculated_risk_key: str | None = "predicted_risk",
                                 calculated_risk_fn: Callable[[dict], float] | None = None,
                                 risk_graph_ylim: tuple[float, float] | None = None) -> str:
@@ -855,6 +1239,51 @@ def compose_trial_dataset_video(jsonl_path: str,
         risk_tile_mode="graph",
         calculated_risk_key=calculated_risk_key,
         calculated_risk_fn=calculated_risk_fn,
+        risk_graph_ylim=risk_graph_ylim,
+    )
+    return composer.build_video(output_name=output_name)
+
+
+def compose_trial_comparison_video(jsonl_path_a: str,
+                                   jsonl_path_b: str,
+                                   output_name: str = "trial_comparison_video.mp4",
+                                   fps: int = Config.RECORDING_FPS,
+                                   label_a: str = "run_a",
+                                   label_b: str = "run_b",
+                                   calculated_risk_key: str | None = None,
+                                   calculated_risk_fn_a: Callable[[dict], float] | None = None,
+                                   calculated_risk_fn_b: Callable[[dict], float] | None = None,
+                                   risk_graph_ylim: tuple[float, float] | None = None) -> str:
+    """
+    Build a 2x2 comparison video from two trial dataset JSONL files.
+
+    Layout:
+    - top-left: dashcam A
+    - top-right: dashcam B
+    - bottom-left: overlaid risk-vs-distance chart for both runs
+    - bottom-right: overall risk-per-meter metrics for both runs
+
+    :param jsonl_path_a: Path to trial dataset JSONL for run A.
+    :param jsonl_path_b: Path to trial dataset JSONL for run B.
+    :param output_name: Output mp4 filename.
+    :param fps: Video framerate.
+    :param label_a: Legend label for run A.
+    :param label_b: Legend label for run B.
+    :param calculated_risk_key: Optional record key for calculated risk overlay.
+    :param calculated_risk_fn_a: Optional calculated-risk function for run A records.
+    :param calculated_risk_fn_b: Optional calculated-risk function for run B records.
+    :param risk_graph_ylim: Optional fixed y-limits for the risk chart as (ymin, ymax).
+    :returns: Full path to the created video.
+    """
+    composer = TrialComparisonVideoComposer(
+        jsonl_path_a=jsonl_path_a,
+        jsonl_path_b=jsonl_path_b,
+        fps=fps,
+        label_a=label_a,
+        label_b=label_b,
+        calculated_risk_key=calculated_risk_key,
+        calculated_risk_fn_a=calculated_risk_fn_a,
+        calculated_risk_fn_b=calculated_risk_fn_b,
         risk_graph_ylim=risk_graph_ylim,
     )
     return composer.build_video(output_name=output_name)
