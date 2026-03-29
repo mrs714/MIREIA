@@ -1,0 +1,28 @@
+{
+  "trial_name": "demo_trial_runner_streaming",
+  "subtrial_name": "base_speed",
+  "run_id": "20260329_151057_base_speed",
+  "run_path": "d:\\Projectes\\TFG\\MIREIA\\trials\\demo_trial_runner_streaming\\runs\\20260329_151057_base_speed",
+  "num_frames": 400,
+  "duration_s": 982.3153655529022,
+  "traveled_m": 460.8652789463362,
+  "risk_auc": 247.16468792523762,
+  "risk_distance_integral": 927.1294002012597,
+  "risk_per_meter": 2.011714578110398,
+  "predicted_risk_auc": 423.7468030869961,
+  "finished": false,
+  "metadata": {
+    "map_name": "Town03",
+    "weather": "ClearNoon",
+    "route_start": [
+      7.409,
+      -64.4,
+      0.0
+    ],
+    "route_end": [
+      44.003,
+      50.549,
+      0.0
+    ]
+  }
+}

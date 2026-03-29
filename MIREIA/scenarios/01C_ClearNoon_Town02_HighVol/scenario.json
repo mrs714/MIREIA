@@ -10,6 +10,7 @@
         1.4
     ],
     "ego_spawn_index": null,
+    "ego_spawn_point": null,
     "ego_autopilot": true,
     "n_vehicles": 80,
     "n_pedestrians": 50,

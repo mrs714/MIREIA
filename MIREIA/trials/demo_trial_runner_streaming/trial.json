@@ -1,5 +1,5 @@
 {
-  "name": "demo_trial_runner",
+  "name": "demo_trial_runner_streaming",
   "route_start": [
     7.409,
     -64.4,
@@ -10,7 +10,7 @@
     50.549,
     0.0
   ],
-  "description": "Two ego subtrials on the same world setup.",
+  "description": "Streaming inference demo run.",
   "map_name": "Town03",
   "weather": "ClearNoon",
   "n_vehicles": 30,
