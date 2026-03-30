@@ -33,7 +33,7 @@ MIREIA/trials/**/*.png
 
 # Ignore model weights until i can divide them into smaller files
 *.pt
-
+*.pth
 
 # 5. Allow certain file types anywhere
 !*.png
