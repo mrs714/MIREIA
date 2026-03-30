@@ -64,8 +64,12 @@ class EnvironmentState:
         precipitation = weather.precipitation
         fog_density = weather.fog_density
         wetness = weather.wetness
+        sun_altitude = weather.sun_altitude_angle  # -90 (midnight) to 90 (midday)
 
-        self.visibility = max(10.0, 300.0 - (cloudiness * 2.0 + precipitation * 3.0 + fog_density * 4.0))
+        # Lower sun altitude (dusk/night) reduces effective visibility.
+        daylight_factor = float(np.interp(sun_altitude, [-90.0, -12.0, 0.0, 20.0, 90.0], [0.30, 0.45, 0.60, 1.00, 1.00]))
+        base_visibility = 300.0 - (cloudiness * 2.0 + precipitation * 3.0 + fog_density * 4.0)
+        self.visibility = max(10.0, min(300.0, base_visibility * daylight_factor))
         self.mu = max(0.1, 0.8 - (precipitation * 0.003 + wetness * 0.002))
 
     def __repr__(self):

@@ -24,6 +24,45 @@ _WEATHER_PRESETS: dict[str, carla.WeatherParameters] = {
 }
 
 
+def _weather_to_dict(weather: carla.WeatherParameters) -> dict:
+    """Convert a WeatherParameters instance into a constructor-friendly dict."""
+    keys = [
+        "cloudiness",
+        "precipitation",
+        "precipitation_deposits",
+        "wind_intensity",
+        "sun_azimuth_angle",
+        "sun_altitude_angle",
+        "fog_density",
+        "fog_distance",
+        "wetness",
+        "fog_falloff",
+        "scattering_intensity",
+        "mie_scattering_scale",
+        "rayleigh_scattering_scale",
+        "dust_storm",
+    ]
+    return {k: getattr(weather, k) for k in keys if hasattr(weather, k)}
+
+
+def _night_weather_from_preset(preset_name: str, add_fog: bool) -> dict:
+    """Build weather from a preset with forced night sun altitude and optional fog."""
+    weather = _weather_to_dict(_WEATHER_PRESETS[preset_name])
+    weather["sun_altitude_angle"] = -90.0
+
+    if add_fog:
+        base_fog_density = float(weather.get("fog_density", 0.0))
+        base_fog_distance = float(weather.get("fog_distance", 1000.0))
+        base_fog_falloff = float(weather.get("fog_falloff", 0.0))
+
+        # Guarantee meaningful fog in the fog-enabled scenarios.
+        weather["fog_density"] = max(base_fog_density, 45.0)
+        weather["fog_distance"] = min(base_fog_distance, 35.0)
+        weather["fog_falloff"] = max(base_fog_falloff, 1.0)
+
+    return weather
+
+
 # Canonical ego camera offsets by blueprint (x, y, z) in vehicle coordinates.
 EGO_CAMERA_POSITIONS: dict[str, tuple[float, float, float]] = {
     'vehicle.lincoln.mkz_2020': (0.8, 0.0, 1.3),
@@ -182,7 +221,7 @@ class Scenario:
         )
 
 
-def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
+def generate_mireia_dataset(target_count: int = 64) -> list[Scenario]:
     """Procedural generation of MIREIA scenarios."""
     weathers = list(_WEATHER_PRESETS.keys())
 
@@ -261,6 +300,60 @@ def generate_mireia_dataset(target_count: int = 56) -> list[Scenario]:
             pct_running=0.0,
             pct_crossing=5.0,
             safe_vehicles=True,
+        ))
+
+        if len(scenarios) >= target_count:
+            return scenarios[:target_count]
+
+    # Additional nighttime sets 15A-D and 16A-D.
+    # Each ego appears twice (once per set), with fog enabled on exactly one of those two.
+    extra_specs = [
+        (15, 'A', 'ClearNoon', 0, False),
+        (15, 'B', 'CloudyNoon', 1, False),
+        (15, 'C', 'WetNoon', 2, False),
+        (15, 'D', 'HardRainNoon', 3, False),
+        (16, 'A', 'ClearSunset', 0, True),
+        (16, 'B', 'CloudySunset', 1, True),
+        (16, 'C', 'SoftRainSunset', 2, True),
+        (16, 'D', 'HardRainSunset', 3, True),
+    ]
+
+    # Keep map assignment pattern consistent with the base generator.
+    set_maps: dict[int, tuple[str, str]] = {}
+    for set_number in (15, 16):
+        i = set_number - 1
+        map_1 = towns[(i * 2) % len(towns)]
+        map_2 = towns[(i * 2 + 1) % len(towns)]
+        set_maps[set_number] = (map_1, map_2)
+
+    for set_number, letter, preset_name, ego_idx, add_fog in extra_specs:
+        map_1, map_2 = set_maps[set_number]
+        map_name = map_1 if letter in ('A', 'B') else map_2
+        high_volume = letter in ('A', 'C')
+        n_vehicles = 80 if high_volume else 40
+        n_pedestrians = 50 if high_volume else 20
+        pct_running = 15.0 if high_volume else 0.0
+        pct_crossing = 10.0 if high_volume else 5.0
+        safe_vehicles = not high_volume
+
+        weather = _night_weather_from_preset(preset_name, add_fog=add_fog)
+        fog_tag = "Fog" if add_fog else "NoFog"
+        density_tag = "HighVol" if high_volume else "LowVol"
+        scenarios.append(Scenario(
+            name=f"{set_number:02d}{letter}_{preset_name}_{map_name}_{density_tag}_{fog_tag}_Night",
+            map_name=map_name,
+            description=(
+                f"Nighttime ({preset_name} baseline) with {'fog' if add_fog else 'no extra fog'}, "
+                f"driving {egos[ego_idx]}."
+            ),
+            weather=weather,
+            ego_blueprint=egos[ego_idx],
+            ego_camera_position=get_default_ego_camera_position(egos[ego_idx]),
+            n_vehicles=n_vehicles,
+            n_pedestrians=n_pedestrians,
+            pct_running=pct_running,
+            pct_crossing=pct_crossing,
+            safe_vehicles=safe_vehicles,
         ))
 
         if len(scenarios) >= target_count:
