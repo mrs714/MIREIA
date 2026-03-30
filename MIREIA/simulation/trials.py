@@ -209,6 +209,7 @@ class TrialRunner:
         max_steps: int = 10000,
         image_stride: int = Config.RECORD_EVERY_N_TICKS,
         store_topdown_images: bool = False,
+        topdown_capture_delay_ticks: int = 2,
         topdown_resolution: tuple[int, int] = (100, 100),
         topdown_fov: float = 90.0,
         topdown_align_risk_rotation: bool = True,
@@ -224,6 +225,7 @@ class TrialRunner:
             raise ValueError("Use either predictor_fn or streaming_predictor, not both")
 
         image_stride = max(1, int(image_stride))
+        topdown_capture_delay_ticks = max(0, int(topdown_capture_delay_ticks))
         trial.save()
         run_id, run_path = trial.create_subtrial_folder(ego_cfg.name)
         run_path_p = Path(run_path)
@@ -292,6 +294,7 @@ class TrialRunner:
                     "ego_config": asdict(ego_cfg),
                     "topdown_camera": {
                         "enabled": store_topdown_images,
+                        "capture_delay_ticks": topdown_capture_delay_ticks,
                         "resolution": list(topdown_resolution),
                         "fov": topdown_fov,
                         "align_risk_rotation": topdown_align_risk_rotation,
@@ -361,6 +364,17 @@ class TrialRunner:
                     if wm.bridge is not None:
                         wm.bridge.update()
 
+                def _tick_with_debug_without_log() -> None:
+                    # Paint debug path only for the tick being captured by top-down camera.
+                    self._draw_route_debug(
+                        world=wm.world,
+                        controller=controller,
+                        route_start=route_start,
+                        route_end=end_loc,
+                        life_time=0.08,
+                    )
+                    _tick_without_log()
+
                 def _predict_streaming_risk() -> dict:
                     if streaming_predictor is None:
                         return {}
@@ -374,7 +388,7 @@ class TrialRunner:
                     }
 
                 if step % image_stride == 0:
-                    if store_topdown_images:
+                    if store_topdown_images and topdown_capture_delay_ticks == 0:
                         wm.sensor_manager.save_synced_frames(
                             ego_save_path=str(rgb_path),
                             map_save_path=str(topdown_path),
@@ -385,6 +399,16 @@ class TrialRunner:
 
                     if store_risk_frame_images:
                         wm.save_risk_frame_image(save_path=str(risk_frame_path))
+
+                    if store_topdown_images and topdown_capture_delay_ticks > 0:
+                        # Keep top-down filename aligned with the capture step while
+                        # capturing after a delay to include freshly painted map debug paths.
+                        for _ in range(max(0, topdown_capture_delay_ticks - 1)):
+                            _tick_without_log()
+                        wm.sensor_manager.save_map_frame(
+                            save_path=str(topdown_path),
+                            tick_fn=_tick_with_debug_without_log,
+                        )
 
                     prediction_fields = _predict_streaming_risk()
                     _log_current_capture(prediction_fields=prediction_fields)
@@ -412,7 +436,9 @@ class TrialRunner:
                 records=records,
                 finished=finished,
                 elapsed=elapsed,
-                sample_dt=trial.fixed_delta * image_stride,
+                sample_dt=trial.fixed_delta * (
+                    image_stride + (topdown_capture_delay_ticks if store_topdown_images else 0)
+                ),
             )
 
             with open(run_path_p / "summary.json", "w", encoding="utf-8") as f:
@@ -429,6 +455,7 @@ class TrialRunner:
         max_steps: int = 10000,
         image_stride: int = Config.RECORD_EVERY_N_TICKS,
         store_topdown_images: bool = False,
+        topdown_capture_delay_ticks: int = 2,
         topdown_resolution: tuple[int, int] = (100, 100),
         topdown_fov: float = 90.0,
         topdown_align_risk_rotation: bool = True,
@@ -449,6 +476,7 @@ class TrialRunner:
                     max_steps=max_steps,
                     image_stride=image_stride,
                     store_topdown_images=store_topdown_images,
+                    topdown_capture_delay_ticks=topdown_capture_delay_ticks,
                     topdown_resolution=topdown_resolution,
                     topdown_fov=topdown_fov,
                     topdown_align_risk_rotation=topdown_align_risk_rotation,

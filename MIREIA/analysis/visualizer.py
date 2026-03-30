@@ -556,7 +556,8 @@ class DatasetVideoComposer:
             font_title = ImageFont.load_default()
             font_small = ImageFont.load_default()
 
-        draw.text((x0, max(2, y0 - 18)), "Risk vs Distance", fill=(235, 235, 235), font=font_title)
+        # Keep title above the plot area so it doesn't occlude chart content.
+        draw.text((x0, max(1, y0 - 24)), "Risk vs Distance", fill=(235, 235, 235), font=font_title)
         draw.text((x0, y1 + 4), "0 m", fill=(190, 190, 190), font=font_small)
         xlab = f"{d[-1]:.1f} m"
         xlab_w = draw.textbbox((0, 0), xlab, font=font_small)[2]
@@ -569,10 +570,15 @@ class DatasetVideoComposer:
 
         legend_y = y0 + 4
         draw.line([(x0 + 6, legend_y + 6), (x0 + 26, legend_y + 6)], fill=(0, 220, 0), width=3)
-        draw.text((x0 + 30, legend_y), "true", fill=(220, 220, 220), font=font_small)
+        true_label_x = x0 + 30
+        true_label = "true"
+        draw.text((true_label_x, legend_y), true_label, fill=(220, 220, 220), font=font_small)
         if r_calc is not None and np.any(np.isfinite(r_calc)):
-            draw.line([(x0 + 78, legend_y + 6), (x0 + 98, legend_y + 6)], fill=(255, 170, 0), width=2)
-            draw.text((x0 + 102, legend_y), "calculated", fill=(220, 220, 220), font=font_small)
+            true_bbox = draw.textbbox((0, 0), true_label, font=font_small)
+            legend_gap = 24
+            calc_line_x0 = true_label_x + (true_bbox[2] - true_bbox[0]) + legend_gap
+            draw.line([(calc_line_x0, legend_y + 6), (calc_line_x0 + 20, legend_y + 6)], fill=(255, 170, 0), width=2)
+            draw.text((calc_line_x0 + 24, legend_y), "calculated", fill=(220, 220, 220), font=font_small)
 
         return tile
 
@@ -945,7 +951,8 @@ class TrialComparisonVideoComposer:
             font_title = ImageFont.load_default()
             font_small = ImageFont.load_default()
 
-        draw.text((x0, max(2, y0 - 18)), "Overlaid Risk vs Distance", fill=(235, 235, 235), font=font_title)
+        # Keep title above the plot area so it doesn't occlude chart content.
+        draw.text((x0, max(1, y0 - 24)), "Overlaid Risk vs Distance", fill=(235, 235, 235), font=font_title)
         draw.text((x0, y1 + 4), "0 m", fill=(190, 190, 190), font=font_small)
         xmax_label = f"{x_max:.1f} m"
         xmax_w = draw.textbbox((0, 0), xmax_label, font=font_small)[2]
@@ -954,17 +961,28 @@ class TrialComparisonVideoComposer:
         draw.text((2, y1 - 10), f"{y_min:.2f}", fill=(190, 190, 190), font=font_small)
 
         legend_y = y0 + 4
+        legend_gap = 28
+        a_true_label = f"{self.label_a} true"
         draw.line([(x0 + 4, legend_y + 6), (x0 + 22, legend_y + 6)], fill=(80, 230, 90), width=3)
-        draw.text((x0 + 26, legend_y), f"{self.label_a} true", fill=(220, 220, 220), font=font_small)
-        draw.line([(x0 + 114, legend_y + 6), (x0 + 132, legend_y + 6)], fill=(90, 190, 255), width=3)
-        draw.text((x0 + 136, legend_y), f"{self.label_b} true", fill=(220, 220, 220), font=font_small)
+        a_true_x = x0 + 26
+        draw.text((a_true_x, legend_y), a_true_label, fill=(220, 220, 220), font=font_small)
+
+        a_true_bbox = draw.textbbox((0, 0), a_true_label, font=font_small)
+        b_true_line_x0 = a_true_x + (a_true_bbox[2] - a_true_bbox[0]) + legend_gap
+        draw.line([(b_true_line_x0, legend_y + 6), (b_true_line_x0 + 18, legend_y + 6)], fill=(90, 190, 255), width=3)
+        draw.text((b_true_line_x0 + 22, legend_y), f"{self.label_b} true", fill=(220, 220, 220), font=font_small)
 
         if self.calculated_risk_key or self.calculated_risk_fn_a or self.calculated_risk_fn_b:
             legend_y2 = legend_y + 16
+            a_calc_label = f"{self.label_a} calc"
             draw.line([(x0 + 4, legend_y2 + 6), (x0 + 22, legend_y2 + 6)], fill=(255, 170, 0), width=2)
-            draw.text((x0 + 26, legend_y2), f"{self.label_a} calc", fill=(220, 220, 220), font=font_small)
-            draw.line([(x0 + 114, legend_y2 + 6), (x0 + 132, legend_y2 + 6)], fill=(220, 120, 255), width=2)
-            draw.text((x0 + 136, legend_y2), f"{self.label_b} calc", fill=(220, 220, 220), font=font_small)
+            a_calc_x = x0 + 26
+            draw.text((a_calc_x, legend_y2), a_calc_label, fill=(220, 220, 220), font=font_small)
+
+            a_calc_bbox = draw.textbbox((0, 0), a_calc_label, font=font_small)
+            b_calc_line_x0 = a_calc_x + (a_calc_bbox[2] - a_calc_bbox[0]) + legend_gap
+            draw.line([(b_calc_line_x0, legend_y2 + 6), (b_calc_line_x0 + 18, legend_y2 + 6)], fill=(220, 120, 255), width=2)
+            draw.text((b_calc_line_x0 + 22, legend_y2), f"{self.label_b} calc", fill=(220, 220, 220), font=font_small)
 
         return tile
 
