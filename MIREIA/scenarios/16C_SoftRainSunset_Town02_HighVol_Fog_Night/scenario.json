@@ -1,0 +1,36 @@
+{
+    "name": "16C_SoftRainSunset_Town02_HighVol_Fog_Night",
+    "description": "Nighttime (SoftRainSunset baseline) with fog, driving vehicle.audi.etron.",
+    "map_name": "Town02",
+    "weather": {
+        "cloudiness": 20.0,
+        "precipitation": 30.0,
+        "precipitation_deposits": 50.0,
+        "wind_intensity": 30.0,
+        "sun_azimuth_angle": -1.0,
+        "sun_altitude_angle": -90.0,
+        "fog_density": 45.0,
+        "fog_distance": 0.75,
+        "wetness": 0.0,
+        "fog_falloff": 1.0,
+        "scattering_intensity": 1.0,
+        "mie_scattering_scale": 0.029999999329447746,
+        "rayleigh_scattering_scale": 0.03310000151395798,
+        "dust_storm": 0.0
+    },
+    "ego_blueprint": "vehicle.audi.etron",
+    "ego_camera_position": [
+        0.65,
+        0.0,
+        1.4
+    ],
+    "ego_spawn_index": null,
+    "ego_spawn_point": null,
+    "ego_autopilot": true,
+    "n_vehicles": 80,
+    "n_pedestrians": 50,
+    "pct_running": 15.0,
+    "pct_crossing": 10.0,
+    "safe_vehicles": false,
+    "seed": 42
+}
