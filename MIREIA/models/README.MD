@@ -4,5 +4,6 @@ This should contain:
 - seq2seq_risk_checkpoint.pt
 - yolo11s.pt
 - weather_classification.pth
-- road_segmentation_lane.pth
+- road_segmentation_multitask_checkpoint.pt
+- road_segmentation_multitask_best.pt
 - depth_anything_v2_vits.pth

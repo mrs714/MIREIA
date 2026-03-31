@@ -5,6 +5,11 @@ from MIREIA.perception.e2e_model import (
 	E2EModelConfig,
 	Seq2SeqRiskPredictor,
 )
+from MIREIA.perception.road_segmentation import MireiaRoadSegmentationModel
+from MIREIA.perception.road_segmentation_train import (
+	load_road_segmentation_model,
+	train_road_segmentation_model,
+)
 from MIREIA.perception.inference import (
 	EnvironmentClassifierPredictor,
 	EnvironmentPrediction,
@@ -17,7 +22,10 @@ from MIREIA.perception.inference import (
 
 __all__ = [
 	"MireiaEnvironmentClassifier",
+	"MireiaRoadSegmentationModel",
 	"train_e2e_model",
+	"train_road_segmentation_model",
+	"load_road_segmentation_model",
 	"E2EModelConfig",
 	"E2ERiskPredictor",
 	"Seq2SeqRiskPredictor",
