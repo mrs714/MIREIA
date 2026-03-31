@@ -1,4 +1,5 @@
 from MIREIA.perception.climate_model import MireiaEnvironmentClassifier
+from MIREIA.perception.e2e_model_train import train_e2e_model
 from MIREIA.perception.e2e_model import (
 	E2ERiskPredictor,
 	E2EModelConfig,
@@ -16,6 +17,7 @@ from MIREIA.perception.inference import (
 
 __all__ = [
 	"MireiaEnvironmentClassifier",
+	"train_e2e_model",
 	"E2EModelConfig",
 	"E2ERiskPredictor",
 	"Seq2SeqRiskPredictor",

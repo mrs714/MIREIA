@@ -15,6 +15,10 @@ from MIREIA.data_collection.scenario_multitask_dataset import (
 )
 
 
+def _is_sequence_model_type(model_type: str) -> bool:
+    return str(model_type).strip().lower() in {"seq2seq", "e2e"}
+
+
 def build_scenario_dataloaders(
     seq_len: int,
     batch_size: int = 4,
@@ -38,7 +42,7 @@ def build_scenario_dataloaders(
     **dataset_kwargs,
 ) -> Tuple[DataLoader, DataLoader, str]:
     if target_mode is None:
-        target_mode = "sequence" if model_type == "seq2seq" else "last"
+        target_mode = "sequence" if _is_sequence_model_type(model_type) else "last"
 
     train_loader, val_loader = create_scenario_dataloaders(
         seq_len=seq_len,
@@ -69,7 +73,7 @@ def select_targets(
     model_type: str,
     m_eval_frames: int,
 ) -> torch.Tensor:
-    if model_type == "seq2seq":
+    if _is_sequence_model_type(model_type):
         if batch_y.ndim == 3:
             return batch_y[:, -m_eval_frames:, :]
         return batch_y.unsqueeze(1).expand_as(preds)
@@ -133,7 +137,7 @@ def train_model(
             batch_y = batch_y.to(device, non_blocking=True)
 
             with torch.autocast(device_type=device.type, enabled=amp_enabled):
-                if model_type == "seq2seq":
+                if _is_sequence_model_type(model_type):
                     preds = model(batch_x, m_eval_frames=m_eval_frames)
                 else:
                     preds = model(batch_x)
@@ -231,7 +235,7 @@ def evaluate_model(
             batch_x = batch_x.to(device, non_blocking=True)
             batch_y = batch_y.to(device, non_blocking=True)
             with torch.autocast(device_type=device.type, enabled=amp_enabled):
-                if model_type == "seq2seq":
+                if _is_sequence_model_type(model_type):
                     preds = model(batch_x, m_eval_frames=m_eval_frames)
                 else:
                     preds = model(batch_x)

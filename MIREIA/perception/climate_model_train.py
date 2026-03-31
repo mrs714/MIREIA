@@ -184,10 +184,13 @@ def train_environment_model(
 
     return {
         "model": model,
+        "train_loader": train_loader,
+        "val_loader": val_loader,
         "history": history,
         "checkpoint_path": checkpoint_path,
         "start_epoch": start_epoch,
         "final_epoch": final_epoch,
+        "model_type": "environment_multitask",
         "climate_to_idx": climate_to_idx,
         "idx_to_climate": idx_to_climate,
         "device": str(resolved_device),
