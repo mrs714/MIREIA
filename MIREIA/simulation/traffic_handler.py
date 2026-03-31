@@ -42,6 +42,7 @@ class TrafficHandler:
             self.traffic_manager.set_synchronous_mode(True)
 
         self._reset_traffic_manager_defaults()
+        self._tm_vehicle_lights_enabled = False
 
         # Bookkeeping for cleanup
         self.ego_vehicle: carla.Actor = None
@@ -49,6 +50,56 @@ class TrafficHandler:
         self._vehicle_ids: list[int] = []
         self._walker_ids: list[dict] = []    # [{"id": int, "con": int}, ...]
         self._all_walker_actor_ids: list[int] = []  # interleaved [controller, walker, ...]
+
+    def _tick_once(self):
+        """Advance one world frame according to sync/async mode."""
+        if self.synchronous_mode:
+            self.world.tick()
+        else:
+            self.world.wait_for_tick()
+
+    def _apply_tm_light_automation(self, actor_ids: list[int], enabled: bool, max_attempts: int = 3):
+        """Apply TM vehicle light automation to actor IDs with small retry window."""
+        pending = [aid for aid in actor_ids if aid is not None]
+        for attempt in range(max_attempts):
+            if not pending:
+                break
+
+            next_pending: list[int] = []
+            for actor_id in pending:
+                actor = self.world.get_actor(actor_id)
+                if actor is None or not actor.is_alive:
+                    next_pending.append(actor_id)
+                    continue
+                self.traffic_manager.update_vehicle_lights(actor, enabled)
+
+            pending = next_pending
+            if pending and attempt < max_attempts - 1:
+                self._tick_once()
+
+        if pending:
+            print(
+                "Warning: TM light automation could not be applied to "
+                f"{len(pending)} actor(s) after retries."
+            )
+
+    def set_vehicle_light_automation(self, enabled: bool, include_existing: bool = True):
+        """
+        Configure Traffic Manager automatic vehicle light updates.
+
+        :param enabled: Whether TM should manage lights for registered vehicles.
+        :param include_existing: Apply to already spawned ego/NPC vehicles too.
+        """
+        self._tm_vehicle_lights_enabled = bool(enabled)
+        if not include_existing:
+            return
+
+        existing_ids: list[int] = []
+        if self.ego_vehicle is not None and self.ego_vehicle.is_alive:
+            existing_ids.append(self.ego_vehicle.id)
+        existing_ids.extend(self._vehicle_ids)
+
+        self._apply_tm_light_automation(existing_ids, self._tm_vehicle_lights_enabled)
 
     def _reset_traffic_manager_defaults(self):
         """Reset Traffic Manager settings to avoid stale state across scenarios."""
@@ -72,6 +123,7 @@ class TrafficHandler:
     def spawn_ego(self, blueprint_id: str = 'vehicle.lincoln.mkz_2020',
                   spawn_index: int = None, autopilot: bool = False,
                   controller=None,
+                  car_lights_on: bool | None = None,
                   spawn_point: carla.Transform | carla.Location | tuple[float, float, float] | list[float] | int | None = None) -> carla.Actor:
         """
         Spawn a single ego vehicle marked with role_name='hero'.
@@ -82,6 +134,7 @@ class TrafficHandler:
         :param autopilot: Whether to enable autopilot on the ego vehicle.
         :param controller: Optional client-side controller. If provided, it
             must implement bind_vehicle(vehicle, map_inst=...) and run_step().
+        :param car_lights_on: If provided, overrides handler-wide TM lights policy for ego.
         :param spawn_point: Optional spawn selector that overrides spawn_index.
             - If carla.Transform: exact spawn transform.
             - If carla.Location or (x,y,z): projected to nearest drivable waypoint.
@@ -152,13 +205,19 @@ class TrafficHandler:
         if autopilot:
             self.ego_vehicle.set_autopilot(True, self.traffic_manager.get_port())
 
+        effective_lights = self._tm_vehicle_lights_enabled if car_lights_on is None else bool(car_lights_on)
+        self._apply_tm_light_automation([self.ego_vehicle.id], effective_lights)
+
         self.ego_controller = controller
         if self.ego_controller is not None:
             if not hasattr(self.ego_controller, "bind_vehicle") or not hasattr(self.ego_controller, "run_step"):
                 raise TypeError("controller must implement bind_vehicle(...) and run_step().")
             self.ego_controller.bind_vehicle(self.ego_vehicle, map_inst=self.world.get_map())
 
-        print(f"Spawned ego vehicle '{blueprint_id}' at index {spawn_index} (autopilot={autopilot})")
+        print(
+            f"Spawned ego vehicle '{blueprint_id}' at index {spawn_index} "
+            f"(autopilot={autopilot}, tm_lights={effective_lights})"
+        )
         return self.ego_vehicle
 
     def run_ego_controller_step(self):
@@ -173,13 +232,13 @@ class TrafficHandler:
     #  TRAFFIC VEHICLES
     # -----------------------------------------------------------------
     def spawn_vehicles(self, n: int = 30, safe: bool = True,
-                       car_lights_on: bool = False) -> list[int]:
+                       car_lights_on: bool | None = None) -> list[int]:
         """
         Spawn *n* NPC vehicles with autopilot, using batched commands.
 
         :param n: Number of vehicles to attempt to spawn.
         :param safe: If True, only spawn car-type blueprints (no bikes/trucks).
-        :param car_lights_on: Enable automatic headlight management.
+        :param car_lights_on: If provided, overrides handler-wide TM lights policy for this spawn call.
         :returns: List of successfully spawned actor IDs.
         """
         blueprints = sorted(
@@ -218,9 +277,8 @@ class TrafficHandler:
             else:
                 new_ids.append(response.actor_id)
 
-        if car_lights_on:
-            for actor in self.world.get_actors(new_ids):
-                self.traffic_manager.update_vehicle_lights(actor, True)
+        effective_lights = self._tm_vehicle_lights_enabled if car_lights_on is None else bool(car_lights_on)
+        self._apply_tm_light_automation(new_ids, effective_lights)
 
         self._vehicle_ids.extend(new_ids)
         print(f"Spawned {len(new_ids)} / {n} requested vehicles.")

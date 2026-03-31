@@ -30,6 +30,7 @@ class WorldManager:
     def __init__(self, scenario: Scenario | None = None,
                  sync_mode: bool = True,
                  fixed_delta: float = Config.SIM_FIXED_DELTA_SECONDS,
+                 tm_vehicle_lights_by_night: bool = True,
                  verbose: bool = False):
         """
         :param scenario: Initial scenario to load. If None the manager will
@@ -37,11 +38,15 @@ class WorldManager:
             :meth:`load_scenario` is called.
         :param sync_mode: Enable synchronous mode on the CARLA world.
         :param fixed_delta: Fixed timestep in seconds (only in sync mode).
+        :param tm_vehicle_lights_by_night: If True, asks Traffic Manager to
+            auto-manage vehicle lights when scenario sun altitude indicates
+            nighttime.
         :param verbose: Print progress messages during setup.
         """
         self.verbose = verbose
         self._sync_mode = sync_mode
         self._fixed_delta = fixed_delta
+        self._tm_vehicle_lights_by_night = tm_vehicle_lights_by_night
 
         # CARLA handles — populated by __connect_carla
         self.client: carla.Client = None
@@ -168,9 +173,11 @@ class WorldManager:
         Spawn ego vehicle and NPC traffic using :class:`TrafficHandler`.
         All randomness is governed by the scenario's seed.
         """
+        tm_lights_on = self._tm_vehicle_lights_by_night and self.__is_night_scenario()
         self.traffic_handler = TrafficHandler(
             self.client, self.world, seed=self.scenario.seed
         )
+        self.traffic_handler.set_vehicle_light_automation(tm_lights_on, include_existing=False)
 
         self.ego_vehicle = self.traffic_handler.spawn_ego(
             blueprint_id=self.scenario.ego_blueprint,
@@ -192,6 +199,21 @@ class WorldManager:
                 pct_running=self.scenario.pct_running,
                 pct_crossing=self.scenario.pct_crossing,
             )
+
+        # Final TM-owned reconciliation pass after all actors are spawned.
+        self.traffic_handler.set_vehicle_light_automation(tm_lights_on, include_existing=True)
+
+        if self.verbose:
+            print(f"Traffic Manager vehicle light automation set to {tm_lights_on}.")
+
+    def __is_night_scenario(self) -> bool:
+        """Return True when scenario weather indicates nighttime sun altitude."""
+        try:
+            weather_params = self.scenario.get_weather_parameters()
+            return float(weather_params.sun_altitude_angle) < 0.0
+        except Exception:
+            # Fail-safe: if weather parsing fails, keep daytime behavior.
+            return False
 
     def __initialize_bridge(self):
         """
