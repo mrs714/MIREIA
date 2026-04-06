@@ -10,6 +10,11 @@ from MIREIA.perception.road_segmentation_train import (
 	load_road_segmentation_model,
 	train_road_segmentation_model,
 )
+from MIREIA.perception.depth import (
+	DepthPrediction,
+	DepthAnythingV2Estimator,
+	create_depth_anything_v2_estimator,
+)
 from MIREIA.perception.inference import (
 	EnvironmentClassifierPredictor,
 	EnvironmentPrediction,
@@ -18,6 +23,11 @@ from MIREIA.perception.inference import (
 	TemporalRiskPrediction,
 	create_environment_classifier_predictor,
 	create_streaming_predictor,
+)
+from MIREIA.perception.yolo import (
+	YoloDetection,
+	YoloObstacleDetector,
+	create_yolo_obstacle_detector,
 )
 
 __all__ = [
@@ -36,4 +46,10 @@ __all__ = [
 	"StreamingRiskPredictor",
 	"create_environment_classifier_predictor",
 	"create_streaming_predictor",
+	"DepthPrediction",
+	"DepthAnythingV2Estimator",
+	"create_depth_anything_v2_estimator",
+	"YoloDetection",
+	"YoloObstacleDetector",
+	"create_yolo_obstacle_detector",
 ]
