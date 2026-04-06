@@ -15,6 +15,11 @@ from MIREIA.perception.depth import (
 	DepthAnythingV2Estimator,
 	create_depth_anything_v2_estimator,
 )
+from MIREIA.perception.raft import (
+	FlowPrediction,
+	RaftOpticalFlowEstimator,
+	create_raft_optical_flow_estimator,
+)
 from MIREIA.perception.inference import (
 	EnvironmentClassifierPredictor,
 	EnvironmentPrediction,
@@ -23,6 +28,15 @@ from MIREIA.perception.inference import (
 	TemporalRiskPrediction,
 	create_environment_classifier_predictor,
 	create_streaming_predictor,
+)
+from MIREIA.perception.sam2_dashboard import (
+	BoundingBox,
+	DashBBCleanCropTransform,
+	DashBBoxResult,
+	Sam2DashboardSegmenter,
+	create_dash_bb,
+	create_dash_bb_transform,
+	create_sam2_dashboard_segmenter,
 )
 from MIREIA.perception.yolo import (
 	YoloDetection,
@@ -46,9 +60,19 @@ __all__ = [
 	"StreamingRiskPredictor",
 	"create_environment_classifier_predictor",
 	"create_streaming_predictor",
+	"BoundingBox",
+	"DashBBCleanCropTransform",
+	"DashBBoxResult",
+	"Sam2DashboardSegmenter",
+	"create_dash_bb",
+	"create_dash_bb_transform",
+	"create_sam2_dashboard_segmenter",
 	"DepthPrediction",
 	"DepthAnythingV2Estimator",
 	"create_depth_anything_v2_estimator",
+	"FlowPrediction",
+	"RaftOpticalFlowEstimator",
+	"create_raft_optical_flow_estimator",
 	"YoloDetection",
 	"YoloObstacleDetector",
 	"create_yolo_obstacle_detector",
