@@ -23,6 +23,8 @@ class JsonlSequenceDataset(BaseSequenceDataset):
         target_mode: str = "last",
         risk_key: str = "ground_truth_risk",
         normalize_paths: bool = True,
+        crop_bbox_key: str | None = "crop_bbox_xyxy",
+        manual_crop_bbox: Sequence[float] | None = None,
     ):
         super().__init__(
             seq_len=seq_len,
@@ -30,6 +32,8 @@ class JsonlSequenceDataset(BaseSequenceDataset):
             image_size=image_size,
             target_mode=target_mode,
             risk_key=risk_key,
+            crop_bbox_key=crop_bbox_key,
+            manual_crop_bbox=manual_crop_bbox,
         )
         self.jsonl_path = jsonl_path
         self.image_root = image_root or os.path.dirname(jsonl_path)
@@ -53,4 +57,5 @@ class JsonlSequenceDataset(BaseSequenceDataset):
         full_path = resolve_image_path(self.image_root, rel_path, self.normalize_paths)
         if not os.path.isfile(full_path):
             raise FileNotFoundError(f"Dashcam image not found: {full_path}")
-        return self._load_image_tensor(full_path)
+        crop_bbox = self._resolve_record_crop_bbox(record)
+        return self._load_image_tensor(full_path, crop_bbox_xyxy=crop_bbox)

@@ -5,7 +5,7 @@ import os
 import random
 import re
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Sequence
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -16,6 +16,8 @@ from MIREIA.data_collection.dataset_utils import (
     build_default_transform,
     load_jsonl_records,
     load_rgb_image,
+    normalize_crop_bbox_xyxy,
+    resolve_record_crop_bbox,
     resolve_image_path,
 )
 
@@ -121,6 +123,11 @@ class ScenarioEnvironmentDataset(Dataset):
         frame_subset_seed: int = Config.RANDOM_SEED,
         frame_subset_mode: str = "random",
         climate_to_idx: Optional[Dict[str, int]] = None,
+        prefer_labeled_jsonl: bool = True,
+        labeled_jsonl_name: str = "dataset_labeled.jsonl",
+        dataset_jsonl_name: str = "dataset.jsonl",
+        crop_bbox_key: str | None = "crop_bbox_xyxy",
+        manual_crop_bbox: Sequence[float] | None = None,
     ):
         if split not in {"train", "val"}:
             raise ValueError("split must be 'train' or 'val'")
@@ -141,6 +148,11 @@ class ScenarioEnvironmentDataset(Dataset):
         self.frame_subset_ratio = frame_subset_ratio
         self.frame_subset_seed = frame_subset_seed
         self.frame_subset_mode = frame_subset_mode
+        self.prefer_labeled_jsonl = bool(prefer_labeled_jsonl)
+        self.labeled_jsonl_name = str(labeled_jsonl_name)
+        self.dataset_jsonl_name = str(dataset_jsonl_name)
+        self.crop_bbox_key = crop_bbox_key
+        self.manual_crop_bbox = normalize_crop_bbox_xyxy(manual_crop_bbox)
 
         self._sources = self._discover_sources()
         if expected_scenarios and len(self._sources) != expected_scenarios:
@@ -191,7 +203,12 @@ class ScenarioEnvironmentDataset(Dataset):
         if not os.path.isfile(image_path):
             raise FileNotFoundError(f"Dashcam image not found: {image_path}")
 
-        image = load_rgb_image(image_path, self.transform)
+        crop_bbox = resolve_record_crop_bbox(
+            record=record,
+            crop_bbox_key=self.crop_bbox_key,
+            manual_crop_bbox=self.manual_crop_bbox,
+        )
+        image = load_rgb_image(image_path, self.transform, crop_bbox_xyxy=crop_bbox)
         day_night_label = torch.tensor(source.day_night_label, dtype=torch.long)
         climate_label = torch.tensor(self._climate_to_idx[source.climate_label], dtype=torch.long)
         return image, day_night_label, climate_label
@@ -220,9 +237,18 @@ class ScenarioEnvironmentDataset(Dataset):
             if self.exclude_names and entry in self.exclude_names:
                 continue
 
-            jsonl_path = os.path.join(scenario_dir, "dataset.jsonl")
+            labeled_jsonl_path = os.path.join(scenario_dir, self.labeled_jsonl_name)
+            default_jsonl_path = os.path.join(scenario_dir, self.dataset_jsonl_name)
             scenario_json_path = os.path.join(scenario_dir, "scenario.json")
-            if not os.path.isfile(jsonl_path) or not os.path.isfile(scenario_json_path):
+
+            if self.prefer_labeled_jsonl and os.path.isfile(labeled_jsonl_path):
+                jsonl_path = labeled_jsonl_path
+            elif os.path.isfile(default_jsonl_path):
+                jsonl_path = default_jsonl_path
+            else:
+                continue
+
+            if not os.path.isfile(scenario_json_path):
                 continue
 
             is_val = self.town10hd_token in entry

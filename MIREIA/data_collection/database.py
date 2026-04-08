@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Callable, Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional, Sequence
 
 import torch
 from torch.utils.data import DataLoader
@@ -45,6 +45,11 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 		window_subset_ratio: Optional[float] = None,
 		window_subset_seed: int = Config.RANDOM_SEED,
 		window_subset_mode: str = "random",
+		prefer_labeled_jsonl: bool = True,
+		labeled_jsonl_name: str = "dataset_labeled.jsonl",
+		dataset_jsonl_name: str = "dataset.jsonl",
+		crop_bbox_key: str | None = "crop_bbox_xyxy",
+		manual_crop_bbox: Sequence[float] | None = None,
 	):
 		super().__init__(
 			seq_len=seq_len,
@@ -52,6 +57,8 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 			image_size=image_size,
 			target_mode=target_mode,
 			risk_key=risk_key,
+			crop_bbox_key=crop_bbox_key,
+			manual_crop_bbox=manual_crop_bbox,
 		)
 		if split not in {"train", "val"}:
 			raise ValueError("split must be 'train' or 'val'")
@@ -66,6 +73,9 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 		self.window_subset_ratio = window_subset_ratio
 		self.window_subset_seed = window_subset_seed
 		self.window_subset_mode = window_subset_mode
+		self.prefer_labeled_jsonl = bool(prefer_labeled_jsonl)
+		self.labeled_jsonl_name = str(labeled_jsonl_name)
+		self.dataset_jsonl_name = str(dataset_jsonl_name)
 
 		self.scenarios_root = scenarios_root or Config.PATH_TO_SCENARIOS
 		self.include_names = set(include_names or [])
@@ -111,8 +121,14 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 			if self.exclude_names and entry in self.exclude_names:
 				continue
 
-			jsonl_path = os.path.join(scenario_dir, "dataset.jsonl")
-			if not os.path.isfile(jsonl_path):
+			labeled_jsonl_path = os.path.join(scenario_dir, self.labeled_jsonl_name)
+			default_jsonl_path = os.path.join(scenario_dir, self.dataset_jsonl_name)
+
+			if self.prefer_labeled_jsonl and os.path.isfile(labeled_jsonl_path):
+				jsonl_path = labeled_jsonl_path
+			elif os.path.isfile(default_jsonl_path):
+				jsonl_path = default_jsonl_path
+			else:
 				continue
 
 			is_val = self.town10hd_token in entry
@@ -190,7 +206,8 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 		if not os.path.isfile(full_path):
 			raise FileNotFoundError(f"Dashcam image not found: {full_path}")
 
-		return self._load_image_tensor(full_path)
+		crop_bbox = self._resolve_record_crop_bbox(record)
+		return self._load_image_tensor(full_path, crop_bbox_xyxy=crop_bbox)
 
 	@staticmethod
 	def _build_index(records: List[List[dict]], seq_len: int) -> List[tuple[int, int]]:

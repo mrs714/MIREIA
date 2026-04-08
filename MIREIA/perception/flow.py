@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Any, Tuple
 
 import cv2
 import numpy as np
@@ -50,4 +50,60 @@ class EgoMotionEstimator:
         return float(x_shift), float(y_shift)
 
 
-__all__ = ["EgoMotionEstimator"]
+def track_objects(model: Any, frame_rgb: np.ndarray) -> list[dict[str, Any]]:
+    """Track objects in an RGB frame using Ultralytics YOLO ByteTrack.
+
+    Args:
+        model: Ultralytics YOLO model instance.
+        frame_rgb: RGB image as a numpy array with shape (H, W, 3).
+
+    Returns:
+        A list of dictionaries with keys:
+            - "id": tracking id (int)
+            - "bbox": [x1, y1, x2, y2] (list[float])
+            - "class": class id (int)
+        Detections without an assigned tracking id are ignored.
+    """
+    if frame_rgb.ndim != 3 or frame_rgb.shape[-1] < 3:
+        raise ValueError("frame_rgb must have shape (H, W, 3)")
+
+    results = model.track(
+        source=frame_rgb,
+        persist=True,
+        tracker="bytetrack.yaml",
+        verbose=False,
+    )
+
+    if not results:
+        return []
+
+    result = results[0]
+    boxes = getattr(result, "boxes", None)
+    if boxes is None:
+        return []
+
+    track_ids = getattr(boxes, "id", None)
+    if track_ids is None:
+        return []
+
+    ids_list = track_ids.int().cpu().tolist()
+    xyxy_list = boxes.xyxy.cpu().tolist()
+    class_list = boxes.cls.int().cpu().tolist()
+
+    tracked: list[dict[str, Any]] = []
+    for track_id, xyxy, class_id in zip(ids_list, xyxy_list, class_list):
+        if track_id is None:
+            continue
+
+        tracked.append(
+            {
+                "id": int(track_id),
+                "bbox": [float(value) for value in xyxy],
+                "class": int(class_id),
+            }
+        )
+
+    return tracked
+
+
+__all__ = ["EgoMotionEstimator", "track_objects"]
