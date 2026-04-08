@@ -15,11 +15,8 @@ from MIREIA.perception.depth import (
 	DepthAnythingV2Estimator,
 	create_depth_anything_v2_estimator,
 )
-from MIREIA.perception.raft import (
-	FlowPrediction,
-	RaftOpticalFlowEstimator,
-	create_raft_optical_flow_estimator,
-)
+from MIREIA.perception.feature_integration import FeatureIntegrator
+from MIREIA.perception.flow import EgoMotionEstimator, track_objects
 from MIREIA.perception.inference import (
 	EnvironmentClassifierPredictor,
 	EnvironmentPrediction,
@@ -70,9 +67,9 @@ __all__ = [
 	"DepthPrediction",
 	"DepthAnythingV2Estimator",
 	"create_depth_anything_v2_estimator",
-	"FlowPrediction",
-	"RaftOpticalFlowEstimator",
-	"create_raft_optical_flow_estimator",
+	"FeatureIntegrator",
+	"EgoMotionEstimator",
+	"track_objects",
 	"YoloDetection",
 	"YoloObstacleDetector",
 	"create_yolo_obstacle_detector",
