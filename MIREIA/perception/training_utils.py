@@ -110,11 +110,15 @@ def train_model(
 
     amp_enabled = bool(use_amp and device.type == "cuda")
     scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+    use_cuda_timing = device.type == "cuda"
 
     for epoch in range(start_epoch, start_epoch + epochs):
-        epoch_start = torch.cuda.Event(enable_timing=True)
-        epoch_end = torch.cuda.Event(enable_timing=True)
-        epoch_start.record()
+        if use_cuda_timing:
+            epoch_start = torch.cuda.Event(enable_timing=True)
+            epoch_end = torch.cuda.Event(enable_timing=True)
+            epoch_start.record()
+        else:
+            epoch_start_time = time.perf_counter()
 
         model.train()
         running_loss = 0.0
@@ -129,9 +133,12 @@ def train_model(
         optimizer.zero_grad(set_to_none=True)
 
         for batch_idx, (batch_x, batch_y) in enumerate(train_loader, start=1):
-            batch_start = torch.cuda.Event(enable_timing=True)
-            batch_end = torch.cuda.Event(enable_timing=True)
-            batch_start.record()
+            if use_cuda_timing:
+                batch_start = torch.cuda.Event(enable_timing=True)
+                batch_end = torch.cuda.Event(enable_timing=True)
+                batch_start.record()
+            else:
+                batch_start_time = time.perf_counter()
 
             batch_x = batch_x.to(device, non_blocking=True)
             batch_y = batch_y.to(device, non_blocking=True)
@@ -171,9 +178,12 @@ def train_model(
             running_loss += loss.item() * batch_x.size(0)
             total_samples += batch_x.size(0)
 
-            batch_end.record()
-            torch.cuda.synchronize() if device.type == "cuda" else None
-            batch_times.append(batch_start.elapsed_time(batch_end) / 1000.0)
+            if use_cuda_timing:
+                batch_end.record()
+                torch.cuda.synchronize()
+                batch_times.append(batch_start.elapsed_time(batch_end) / 1000.0)
+            else:
+                batch_times.append(time.perf_counter() - batch_start_time)
 
             if batch_idx == 1 or batch_idx % log_every == 0:
                 avg_loss = running_loss / max(1, total_samples)
@@ -207,9 +217,12 @@ def train_model(
             history["val_loss"].append(val_loss)
             print(f"Val loss:   {val_loss:.6f}")
 
-        epoch_end.record()
-        torch.cuda.synchronize() if device.type == "cuda" else None
-        elapsed = epoch_start.elapsed_time(epoch_end) / 1000.0
+        if use_cuda_timing:
+            epoch_end.record()
+            torch.cuda.synchronize()
+            elapsed = epoch_start.elapsed_time(epoch_end) / 1000.0
+        else:
+            elapsed = time.perf_counter() - epoch_start_time
         print(f"Epoch time: {elapsed:.1f}s")
 
     return history

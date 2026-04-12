@@ -28,14 +28,14 @@ class FeatureIntegrator:
         1. num_objects,
         2. bb_size_max,
         3. bb_size_avg,
-        4. depth_min,
-        5. depth_avg,
+        4. depth_min_norm,
+        5. depth_avg_norm,
         6. size_change_max,
         7. size_change_avg,
         8. depth_change_max,
         9. depth_change_avg,
-        10. bg_flow_x,
-        11. bg_flow_y,
+        10. bg_flow_x_norm,
+        11. bg_flow_y_norm,
         12. left_threat_max,
         13. left_threat_avg,
         14. center_threat_max,
@@ -50,6 +50,9 @@ class FeatureIntegrator:
 
     EPS = 1e-6
     CLEAR_ROAD_DEPTH = 100.0
+    MAX_SIZE_CHANGE = 5.0
+    MAX_DEPTH_CHANGE = 5.0
+    MAX_THREAT_SCORE = 10.0
 
     def extract_state_vector_from_sources(
         self,
@@ -153,8 +156,10 @@ class FeatureIntegrator:
 
         bb_size_max = float(frame2_areas_sqrt.max()) if frame2_areas_sqrt.size else 0.0
         bb_size_avg = float(frame2_areas_sqrt.mean()) if frame2_areas_sqrt.size else 0.0
-        depth_min = float(frame2_depths.min()) if frame2_depths.size else self.CLEAR_ROAD_DEPTH
-        depth_avg = float(frame2_depths.mean()) if frame2_depths.size else 0.0
+        depth_min_raw = float(frame2_depths.min()) if frame2_depths.size else self.CLEAR_ROAD_DEPTH
+        depth_avg_raw = float(frame2_depths.mean()) if frame2_depths.size else 0.0
+        depth_min = self._normalize_depth(depth_min_raw)
+        depth_avg = self._normalize_depth(depth_avg_raw)
 
         frame1_by_id = {
             obj.object_id: obj for obj in frame1_objects if obj.object_id is not None
@@ -173,9 +178,17 @@ class FeatureIntegrator:
             "right": [],
         }
 
+        height = float(depth_map2_arr.shape[0])
         width = float(depth_map2_arr.shape[1])
         left_cut = width / 3.0
         right_cut = (2.0 * width) / 3.0
+
+        norm_bg_flow_x, norm_bg_flow_y = self._normalize_flow(
+            flow_x=bg_flow_x,
+            flow_y=bg_flow_y,
+            width=width,
+            height=height,
+        )
 
         for track_id in matched_ids:
             obj1 = frame1_by_id[track_id]
@@ -183,9 +196,17 @@ class FeatureIntegrator:
 
             size_change = obj2.area / (obj1.area + self.EPS)
             depth_change = obj2.avg_depth / (obj1.avg_depth + self.EPS)
+            size_change = self._clip_non_negative(size_change, self.MAX_SIZE_CHANGE)
+            depth_change = self._clip_non_negative(depth_change, self.MAX_DEPTH_CHANGE)
             centroid_shift = float(np.hypot(obj2.cx - obj1.cx, obj2.cy - obj1.cy))
+            centroid_shift = self._normalize_centroid_shift(
+                shift_px=centroid_shift,
+                width=width,
+                height=height,
+            )
 
             threat_score = (size_change + centroid_shift) * (1.0 / (obj2.avg_depth + self.EPS))
+            threat_score = self._clip_non_negative(threat_score, self.MAX_THREAT_SCORE)
 
             if obj2.cx < left_cut:
                 zone_scores["left"].append(threat_score)
@@ -227,7 +248,7 @@ class FeatureIntegrator:
         if num_objects == 0.0 or not has_matched_objects:
             bb_size_max = 0.0
             bb_size_avg = 0.0
-            depth_min = self.CLEAR_ROAD_DEPTH
+            depth_min = self._normalize_depth(self.CLEAR_ROAD_DEPTH)
             depth_avg = 0.0
             size_change_max = 0.0
             size_change_avg = 0.0
@@ -253,8 +274,8 @@ class FeatureIntegrator:
                 size_change_avg,
                 depth_change_max,
                 depth_change_avg,
-                float(bg_flow_x),
-                float(bg_flow_y),
+                norm_bg_flow_x,
+                norm_bg_flow_y,
                 left_threat_max,
                 left_threat_avg,
                 center_threat_max,
@@ -274,6 +295,29 @@ class FeatureIntegrator:
             )
 
         return torch.as_tensor(features, dtype=torch.float32)
+
+    def _normalize_flow(
+        self,
+        flow_x: float,
+        flow_y: float,
+        width: float,
+        height: float,
+    ) -> tuple[float, float]:
+        width_safe = max(1.0, float(width))
+        height_safe = max(1.0, float(height))
+        norm_x = float(np.clip(float(flow_x) / width_safe, -1.0, 1.0))
+        norm_y = float(np.clip(float(flow_y) / height_safe, -1.0, 1.0))
+        return norm_x, norm_y
+
+    def _normalize_centroid_shift(self, shift_px: float, width: float, height: float) -> float:
+        diagonal = max(self.EPS, float(np.hypot(width, height)))
+        return float(np.clip(float(shift_px) / diagonal, 0.0, 1.0))
+
+    def _normalize_depth(self, depth_value: float) -> float:
+        return float(np.clip(float(depth_value) / self.CLEAR_ROAD_DEPTH, 0.0, 1.0))
+
+    def _clip_non_negative(self, value: float, max_value: float) -> float:
+        return float(np.clip(float(value), 0.0, float(max_value)))
 
     def _extract_frame_objects(
         self,

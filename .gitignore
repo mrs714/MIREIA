@@ -24,6 +24,7 @@ MIREIA/.env
 # Ignore per-scenario datasets
 MIREIA/scenarios/**/dataset/
 MIREIA/scenarios/**/dataset.jsonl
+MIREIA/scenarios/**/dataset_labeled.jsonl
 MIREIA/scenarios/**/*.mp4
 
 # Ignore per trial datasets

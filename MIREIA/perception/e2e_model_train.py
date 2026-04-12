@@ -51,6 +51,8 @@ def train_e2e_model(
 	transform=None,
 	grad_clip: float | None = None,
 	grad_accum_steps: int = 1,
+	prefer_labeled_jsonl: bool = False,
+	crop_bbox_key: str | None = None,
 ) -> dict[str, object]:
 	"""Train or resume the e2e risk model with runtime-aligned defaults."""
 	if resume_epochs <= 0:
@@ -84,12 +86,17 @@ def train_e2e_model(
 		window_subset_ratio=window_subset_ratio,
 		window_subset_mode=window_subset_mode,
 		window_subset_seed=window_subset_seed,
+		prefer_labeled_jsonl=prefer_labeled_jsonl,
+		crop_bbox_key=crop_bbox_key,
 	)
 
 	print(f"Temporal config: seq_len={seq_len}, burn_in={burn_in_frames}, eval={m_eval_frames}")
 	print(
 		f"DataLoader workers: num_workers={num_workers}, "
 		f"prefetch_factor={prefetch_factor}, persistent_workers={persistent_workers}"
+	)
+	print(
+		f"Input image mode: {'full-frame' if crop_bbox_key is None else f'cropped via {crop_bbox_key}'}"
 	)
 	print(f"Train batches: {len(train_loader)}")
 	print(f"Val batches: {len(val_loader)}")
@@ -168,6 +175,7 @@ def train_e2e_model(
 			"seq_len": seq_len,
 			"target_mode": target_mode,
 			"use_amp": use_amp,
+			"crop_bbox_key": crop_bbox_key,
 		},
 	)
 	print(f"Saved checkpoint: {checkpoint_path}")

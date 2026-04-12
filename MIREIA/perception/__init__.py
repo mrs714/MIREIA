@@ -1,4 +1,10 @@
 from MIREIA.perception.climate_model import MireiaEnvironmentClassifier
+from MIREIA.perception.bdu_gru_model import (
+	BDUGRUModelConfig,
+	BDUGRURiskPredictor,
+	Seq2SeqBDUGRURiskPredictor,
+)
+from MIREIA.perception.bdu_gru_model_train import train_bdu_gru_model
 from MIREIA.perception.e2e_model_train import train_e2e_model
 from MIREIA.perception.e2e_model import (
 	E2ERiskPredictor,
@@ -44,6 +50,10 @@ from MIREIA.perception.yolo import (
 __all__ = [
 	"MireiaEnvironmentClassifier",
 	"MireiaRoadSegmentationModel",
+	"BDUGRUModelConfig",
+	"BDUGRURiskPredictor",
+	"Seq2SeqBDUGRURiskPredictor",
+	"train_bdu_gru_model",
 	"train_e2e_model",
 	"train_road_segmentation_model",
 	"load_road_segmentation_model",
