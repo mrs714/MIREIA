@@ -32,6 +32,12 @@ from MIREIA.perception.inference import (
 	create_environment_classifier_predictor,
 	create_streaming_predictor,
 )
+from MIREIA.perception.queued_inference import (
+	QueuedComposedBDUGRURiskInference,
+	QueuedE2ERiskInference,
+	QueuedRiskPrediction,
+	QueuedTemporalConfig,
+)
 from MIREIA.perception.sam2_dashboard import (
 	BoundingBox,
 	DashBBCleanCropTransform,
@@ -65,6 +71,10 @@ __all__ = [
 	"TemporalInferenceConfig",
 	"TemporalRiskPrediction",
 	"StreamingRiskPredictor",
+	"QueuedTemporalConfig",
+	"QueuedRiskPrediction",
+	"QueuedE2ERiskInference",
+	"QueuedComposedBDUGRURiskInference",
 	"create_environment_classifier_predictor",
 	"create_streaming_predictor",
 	"BoundingBox",
