@@ -11,8 +11,13 @@ from MIREIA.config import Config
 from MIREIA.data_collection.dataset_utils import (
 	BaseSequenceDataset,
 	DEFAULT_IMAGE_SIZE,
+	compute_frame_split_boundary,
 	load_jsonl_records,
+	normalize_frame_train_ratio,
+	normalize_partition_mode,
+	normalize_validation_tokens,
 	resolve_image_path,
+	scenario_is_validation_split,
 )
 
 
@@ -36,7 +41,10 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 		expected_scenarios: int = 54,
 		include_names: Optional[Iterable[str]] = None,
 		exclude_names: Optional[Iterable[str]] = None,
+		partition_mode: str = "scenario",
+		val_scenario_tokens: str | Iterable[str] | None = None,
 		town10hd_token: str = "Town10HD",
+		frame_train_ratio: float = 0.7,
 		normalize_paths: bool = True,
 		subset_ratio: Optional[float] = None,
 		subset_seed: int = Config.RANDOM_SEED,
@@ -65,7 +73,12 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 
 		self.split = split
 		self.normalize_paths = normalize_paths
-		self.town10hd_token = town10hd_token
+		self.partition_mode = normalize_partition_mode(partition_mode)
+		self.val_scenario_tokens = normalize_validation_tokens(
+			val_scenario_tokens,
+			fallback_token=town10hd_token,
+		)
+		self.frame_train_ratio = normalize_frame_train_ratio(frame_train_ratio)
 		self.subset_ratio = subset_ratio
 		self.subset_seed = subset_seed
 		self.subset_mode = subset_mode
@@ -89,7 +102,7 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 
 		self._sources: List[ScenarioSource] = sources
 		self._records: List[List[dict]] = [load_jsonl_records(s.jsonl_path) for s in sources]
-		self._index: List[tuple[int, int]] = self._build_index(self._records, seq_len)
+		self._index: List[tuple[int, int]] = self._build_index_for_split(self._records, seq_len)
 		self._index = self._apply_window_subset(self._index)
 
 	def __len__(self) -> int:
@@ -131,11 +144,12 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 			else:
 				continue
 
-			is_val = self.town10hd_token in entry
-			if self.split == "val" and not is_val:
-				continue
-			if self.split == "train" and is_val:
-				continue
+			if self.partition_mode == "scenario":
+				is_val = scenario_is_validation_split(entry, self.val_scenario_tokens)
+				if self.split == "val" and not is_val:
+					continue
+				if self.split == "train" and is_val:
+					continue
 
 			candidates.append(
 				ScenarioSource(
@@ -147,6 +161,36 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 
 		candidates = self._apply_subset(candidates)
 		return candidates
+
+	def _build_index_for_split(
+		self,
+		records: List[List[dict]],
+		seq_len: int,
+	) -> List[tuple[int, int]]:
+		if self.partition_mode != "frame":
+			return self._build_index(records, seq_len)
+
+		index: List[tuple[int, int]] = []
+		for scenario_idx, scenario_records in enumerate(records):
+			scenario_len = len(scenario_records)
+			max_start = scenario_len - seq_len
+			if max_start < 0:
+				continue
+
+			split_boundary = compute_frame_split_boundary(scenario_len, self.frame_train_ratio)
+			if self.split == "train":
+				start_min = 0
+				start_max = split_boundary - seq_len
+			else:
+				start_min = split_boundary
+				start_max = max_start
+
+			if start_max < start_min:
+				continue
+
+			for start in range(start_min, start_max + 1):
+				index.append((scenario_idx, start))
+		return index
 
 	def _apply_subset(self, candidates: List[ScenarioSource]) -> List[ScenarioSource]:
 		if self.subset_ratio is not None:

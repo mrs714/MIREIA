@@ -8,7 +8,14 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from MIREIA.config import Config
-from MIREIA.data_collection.dataset_utils import load_jsonl_records
+from MIREIA.data_collection.dataset_utils import (
+    compute_frame_split_boundary,
+    load_jsonl_records,
+    normalize_frame_train_ratio,
+    normalize_partition_mode,
+    normalize_validation_tokens,
+    scenario_is_validation_split,
+)
 
 
 @dataclass(frozen=True)
@@ -44,7 +51,10 @@ class ScenarioFeatureSequenceDataset(Dataset):
         expected_scenarios: Optional[int] = None,
         include_names: Optional[Iterable[str]] = None,
         exclude_names: Optional[Iterable[str]] = None,
+        partition_mode: str = "scenario",
+        val_scenario_tokens: str | Iterable[str] | None = None,
         town10hd_token: str = "Town10HD",
+        frame_train_ratio: float = 0.7,
         subset_ratio: Optional[float] = None,
         subset_seed: int = Config.RANDOM_SEED,
         subset_mode: str = "first",
@@ -73,7 +83,12 @@ class ScenarioFeatureSequenceDataset(Dataset):
         self.feature_dim = int(feature_dim)
         self.fallback_to_zeros = bool(fallback_to_zeros)
 
-        self.town10hd_token = town10hd_token
+        self.partition_mode = normalize_partition_mode(partition_mode)
+        self.val_scenario_tokens = normalize_validation_tokens(
+            val_scenario_tokens,
+            fallback_token=town10hd_token,
+        )
+        self.frame_train_ratio = normalize_frame_train_ratio(frame_train_ratio)
         self.subset_ratio = subset_ratio
         self.subset_seed = subset_seed
         self.subset_mode = subset_mode
@@ -101,10 +116,8 @@ class ScenarioFeatureSequenceDataset(Dataset):
         self._sources: List[ScenarioFeatureSource] = sources
         records_by_scenario: List[List[dict]] = [load_jsonl_records(s.jsonl_path) for s in sources]
         self._scenario_features, self._scenario_risks = self._materialize_records(records_by_scenario)
-        self._index: List[tuple[int, int]] = self._build_index_from_lengths(
-            [int(feats.shape[0]) for feats in self._scenario_features],
-            self.seq_len,
-        )
+        lengths = [int(feats.shape[0]) for feats in self._scenario_features]
+        self._index: List[tuple[int, int]] = self._build_index_for_split(lengths, self.seq_len)
         self._index = self._apply_window_subset(self._index)
 
     def __len__(self) -> int:
@@ -173,11 +186,12 @@ class ScenarioFeatureSequenceDataset(Dataset):
             else:
                 continue
 
-            is_val = self.town10hd_token in entry
-            if self.split == "val" and not is_val:
-                continue
-            if self.split == "train" and is_val:
-                continue
+            if self.partition_mode == "scenario":
+                is_val = scenario_is_validation_split(entry, self.val_scenario_tokens)
+                if self.split == "val" and not is_val:
+                    continue
+                if self.split == "train" and is_val:
+                    continue
 
             candidates.append(ScenarioFeatureSource(name=entry, jsonl_path=jsonl_path))
 
@@ -304,6 +318,30 @@ class ScenarioFeatureSequenceDataset(Dataset):
             return torch.tensor([value], dtype=torch.float32)
         value = float(risk_window[-1].item()) if risk_window.numel() else 0.0
         return torch.tensor([value], dtype=torch.float32)
+
+    def _build_index_for_split(self, lengths: list[int], seq_len: int) -> list[tuple[int, int]]:
+        if self.partition_mode != "frame":
+            return self._build_index_from_lengths(lengths, seq_len)
+
+        index: list[tuple[int, int]] = []
+        for scenario_idx, scenario_len in enumerate(lengths):
+            max_start = scenario_len - seq_len
+            if max_start < 0:
+                continue
+
+            split_boundary = compute_frame_split_boundary(scenario_len, self.frame_train_ratio)
+            if self.split == "train":
+                start_min = 0
+                start_max = split_boundary - seq_len
+            else:
+                start_min = split_boundary
+                start_max = max_start
+
+            if start_max < start_min:
+                continue
+            for start in range(start_min, start_max + 1):
+                index.append((scenario_idx, start))
+        return index
 
     @staticmethod
     def _build_index_from_lengths(lengths: list[int], seq_len: int) -> list[tuple[int, int]]:

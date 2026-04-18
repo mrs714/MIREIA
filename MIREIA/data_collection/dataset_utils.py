@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Callable, List, Sequence
+from typing import Callable, Iterable, List, Sequence
 
 from PIL import Image
 import torch
@@ -10,6 +10,73 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 DEFAULT_IMAGE_SIZE = (512, 512)
+VALID_PARTITION_MODES = {"scenario", "frame"}
+
+
+def normalize_partition_mode(partition_mode: str) -> str:
+    mode = str(partition_mode).strip().lower()
+    if mode not in VALID_PARTITION_MODES:
+        raise ValueError("partition_mode must be 'scenario' or 'frame'")
+    return mode
+
+
+def normalize_validation_tokens(
+    tokens: str | Iterable[str] | None,
+    fallback_token: str | None = "Town10HD",
+) -> tuple[str, ...]:
+    parsed: list[str] = []
+
+    def _append(raw: str) -> None:
+        for chunk in str(raw).split(","):
+            token = chunk.strip()
+            if token:
+                parsed.append(token)
+
+    if tokens is None:
+        if fallback_token:
+            _append(fallback_token)
+    elif isinstance(tokens, str):
+        _append(tokens)
+    else:
+        for item in tokens:
+            _append(str(item))
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for token in parsed:
+        key = token.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(token)
+    return tuple(deduped)
+
+
+def scenario_is_validation_split(scenario_name: str, validation_tokens: Sequence[str]) -> bool:
+    normalized_name = scenario_name.lower()
+    for token in validation_tokens:
+        normalized_token = str(token).strip().lower()
+        if normalized_token and normalized_token in normalized_name:
+            return True
+    return False
+
+
+def normalize_frame_train_ratio(frame_train_ratio: float) -> float:
+    ratio = float(frame_train_ratio)
+    if ratio > 1.0:
+        ratio = ratio / 100.0
+    if not (0.0 < ratio < 1.0):
+        raise ValueError("frame_train_ratio must be in (0, 1) or (0, 100)")
+    return ratio
+
+
+def compute_frame_split_boundary(total_count: int, frame_train_ratio: float) -> int:
+    if total_count <= 0:
+        return 0
+    if total_count == 1:
+        return 1
+    boundary = int(total_count * frame_train_ratio)
+    return min(max(1, boundary), total_count - 1)
 
 
 def build_default_transform(image_size: tuple[int, int] = DEFAULT_IMAGE_SIZE) -> transforms.Compose:

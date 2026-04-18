@@ -14,11 +14,16 @@ from MIREIA.config import Config
 from MIREIA.data_collection.dataset_utils import (
     DEFAULT_IMAGE_SIZE,
     build_default_transform,
+    compute_frame_split_boundary,
     load_jsonl_records,
+    normalize_frame_train_ratio,
+    normalize_partition_mode,
+    normalize_validation_tokens,
     load_rgb_image,
     normalize_crop_bbox_xyxy,
     resolve_record_crop_bbox,
     resolve_image_path,
+    scenario_is_validation_split,
 )
 
 
@@ -113,7 +118,10 @@ class ScenarioEnvironmentDataset(Dataset):
         expected_scenarios: Optional[int] = None,
         include_names: Optional[Iterable[str]] = None,
         exclude_names: Optional[Iterable[str]] = None,
+        partition_mode: str = "scenario",
+        val_scenario_tokens: str | Iterable[str] | None = None,
         town10hd_token: str = "Town10HD",
+        frame_train_ratio: float = 0.7,
         normalize_paths: bool = True,
         subset_ratio: Optional[float] = None,
         subset_seed: int = Config.RANDOM_SEED,
@@ -138,7 +146,12 @@ class ScenarioEnvironmentDataset(Dataset):
         self.normalize_paths = normalize_paths
         self.include_names = set(include_names or [])
         self.exclude_names = set(exclude_names or [])
-        self.town10hd_token = town10hd_token
+        self.partition_mode = normalize_partition_mode(partition_mode)
+        self.val_scenario_tokens = normalize_validation_tokens(
+            val_scenario_tokens,
+            fallback_token=town10hd_token,
+        )
+        self.frame_train_ratio = normalize_frame_train_ratio(frame_train_ratio)
 
         self.subset_ratio = subset_ratio
         self.subset_seed = subset_seed
@@ -251,11 +264,12 @@ class ScenarioEnvironmentDataset(Dataset):
             if not os.path.isfile(scenario_json_path):
                 continue
 
-            is_val = self.town10hd_token in entry
-            if self.split == "val" and not is_val:
-                continue
-            if self.split == "train" and is_val:
-                continue
+            if self.partition_mode == "scenario":
+                is_val = scenario_is_validation_split(entry, self.val_scenario_tokens)
+                if self.split == "val" and not is_val:
+                    continue
+                if self.split == "train" and is_val:
+                    continue
 
             with open(scenario_json_path, "r", encoding="utf-8") as handle:
                 scenario_meta = json.load(handle)
@@ -322,11 +336,21 @@ class ScenarioEnvironmentDataset(Dataset):
             raise ValueError("frame_subset_mode must be 'first' or 'random'")
         return index[:count]
 
-    @staticmethod
-    def _build_index(records: List[List[dict]]) -> List[tuple[int, int]]:
+    def _build_index(self, records: List[List[dict]]) -> List[tuple[int, int]]:
         index: List[tuple[int, int]] = []
         for source_idx, scenario_records in enumerate(records):
-            for frame_idx in range(len(scenario_records)):
+            total_frames = len(scenario_records)
+            start_idx = 0
+            end_idx = total_frames
+
+            if self.partition_mode == "frame":
+                split_boundary = compute_frame_split_boundary(total_frames, self.frame_train_ratio)
+                if self.split == "train":
+                    start_idx, end_idx = 0, split_boundary
+                else:
+                    start_idx, end_idx = split_boundary, total_frames
+
+            for frame_idx in range(start_idx, end_idx):
                 index.append((source_idx, frame_idx))
         return index
 
