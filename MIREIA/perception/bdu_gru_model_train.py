@@ -4,6 +4,7 @@ import os
 
 import torch
 from torch import nn, optim
+from torch.nn import functional as F
 
 from MIREIA.config import Config
 from MIREIA.data_collection.feature_sequence_dataset import (
@@ -32,6 +33,69 @@ def _normalize_model_type(model_type: str) -> str:
 
 def _public_model_type(model_type: str) -> str:
     return "bdu_gru" if model_type == "seq2seq" else model_type
+
+
+class _DynamicWeightedRegressionLoss(nn.Module):
+    """Weighted regression loss that emphasizes amplitude and temporal changes.
+
+    This helps prevent low-variance "flat" solutions that can still optimize
+    plain MSE/SmoothL1 on imbalanced risk distributions.
+    """
+
+    def __init__(
+        self,
+        *,
+        base_loss: str = "smooth_l1",
+        huber_beta: float = 1.0,
+        amplitude_alpha: float = 0.0,
+        trend_beta: float = 0.0,
+        eps: float = 1e-6,
+    ):
+        super().__init__()
+        self.base_loss = str(base_loss).strip().lower()
+        if self.base_loss not in {"mse", "smooth_l1"}:
+            raise ValueError("base_loss must be 'mse' or 'smooth_l1'")
+        self.huber_beta = float(huber_beta)
+        self.amplitude_alpha = float(amplitude_alpha)
+        self.trend_beta = float(trend_beta)
+        self.eps = float(eps)
+
+    def _base_loss_per_element(self, preds: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        if self.base_loss == "mse":
+            return (preds - target) ** 2
+        return F.smooth_l1_loss(preds, target, beta=self.huber_beta, reduction="none")
+
+    def _amplitude_weights(self, target: torch.Tensor) -> torch.Tensor:
+        if self.amplitude_alpha <= 0.0:
+            return torch.ones_like(target)
+        batch = target.shape[0]
+        flat = target.reshape(batch, -1)
+        mean = flat.mean(dim=1, keepdim=True)
+        std = flat.std(dim=1, keepdim=True, unbiased=False).clamp_min(self.eps)
+        z = (flat - mean).abs() / std
+        w = 1.0 + self.amplitude_alpha * z
+        return w.reshape_as(target)
+
+    def _trend_weights(self, target: torch.Tensor) -> torch.Tensor:
+        if self.trend_beta <= 0.0 or target.ndim < 3 or target.shape[1] <= 1:
+            return torch.ones_like(target)
+
+        seq = target.squeeze(-1) if target.shape[-1] == 1 else target.mean(dim=-1)
+        diffs = torch.zeros_like(seq)
+        diffs[:, 1:] = (seq[:, 1:] - seq[:, :-1]).abs()
+        scale = diffs.mean(dim=1, keepdim=True).clamp_min(self.eps)
+        trend = diffs / scale
+        w = 1.0 + self.trend_beta * trend
+        while w.ndim < target.ndim:
+            w = w.unsqueeze(-1)
+        return w
+
+    def forward(self, preds: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        preds = preds.float()
+        target = target.float()
+        per_elem = self._base_loss_per_element(preds, target)
+        weights = self._amplitude_weights(target) * self._trend_weights(target)
+        return (per_elem * weights).mean()
 
 
 def train_bdu_gru_model(
@@ -70,6 +134,8 @@ def train_bdu_gru_model(
     grad_clip: float | None = 1.0,
     loss_type: str = "smooth_l1",
     huber_beta: float = 1.0,
+    dynamic_loss_alpha: float = 0.0,
+    dynamic_loss_beta: float = 0.0,
     grad_accum_steps: int = 1,
 ) -> dict[str, object]:
     """Train or resume BDU-GRU risk model over per-frame 32D feature vectors."""
@@ -85,6 +151,10 @@ def train_bdu_gru_model(
         grad_clip = 1.0
     if huber_beta <= 0.0:
         raise ValueError("huber_beta must be > 0")
+    if dynamic_loss_alpha < 0.0:
+        raise ValueError("dynamic_loss_alpha must be >= 0")
+    if dynamic_loss_beta < 0.0:
+        raise ValueError("dynamic_loss_beta must be >= 0")
 
     model_type_internal = _normalize_model_type(model_type)
     target_mode = "sequence" if model_type_internal == "seq2seq" else "last"
@@ -150,11 +220,42 @@ def train_bdu_gru_model(
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     normalized_loss = str(loss_type).strip().lower()
     if normalized_loss == "mse":
-        criterion = nn.MSELoss()
+        if dynamic_loss_alpha > 0.0 or dynamic_loss_beta > 0.0:
+            criterion = _DynamicWeightedRegressionLoss(
+                base_loss="mse",
+                amplitude_alpha=dynamic_loss_alpha,
+                trend_beta=dynamic_loss_beta,
+            )
+        else:
+            criterion = nn.MSELoss()
     elif normalized_loss in {"smooth_l1", "huber"}:
-        criterion = nn.SmoothL1Loss(beta=huber_beta)
+        if dynamic_loss_alpha > 0.0 or dynamic_loss_beta > 0.0:
+            criterion = _DynamicWeightedRegressionLoss(
+                base_loss="smooth_l1",
+                huber_beta=huber_beta,
+                amplitude_alpha=dynamic_loss_alpha,
+                trend_beta=dynamic_loss_beta,
+            )
+        else:
+            criterion = nn.SmoothL1Loss(beta=huber_beta)
+    elif normalized_loss == "dynamic_mse":
+        criterion = _DynamicWeightedRegressionLoss(
+            base_loss="mse",
+            amplitude_alpha=max(dynamic_loss_alpha, 0.75),
+            trend_beta=max(dynamic_loss_beta, 0.35),
+        )
+    elif normalized_loss in {"dynamic_smooth_l1", "dynamic_huber"}:
+        criterion = _DynamicWeightedRegressionLoss(
+            base_loss="smooth_l1",
+            huber_beta=huber_beta,
+            amplitude_alpha=max(dynamic_loss_alpha, 0.75),
+            trend_beta=max(dynamic_loss_beta, 0.35),
+        )
     else:
-        raise ValueError("loss_type must be 'smooth_l1' (recommended) or 'mse'")
+        raise ValueError(
+            "loss_type must be one of: "
+            "'smooth_l1', 'mse', 'dynamic_smooth_l1', 'dynamic_huber', 'dynamic_mse'"
+        )
 
     if not checkpoint_path:
         checkpoint_path = os.path.join(Config.PATH_TO_MODELS, checkpoint_name)
@@ -215,6 +316,8 @@ def train_bdu_gru_model(
             "grad_clip": grad_clip,
             "loss_type": normalized_loss,
             "huber_beta": huber_beta,
+            "dynamic_loss_alpha": dynamic_loss_alpha,
+            "dynamic_loss_beta": dynamic_loss_beta,
         },
     )
     print(f"Saved checkpoint: {checkpoint_path}")
@@ -240,6 +343,8 @@ def train_bdu_gru_model(
         "grad_clip": grad_clip,
         "loss_type": normalized_loss,
         "huber_beta": huber_beta,
+        "dynamic_loss_alpha": dynamic_loss_alpha,
+        "dynamic_loss_beta": dynamic_loss_beta,
     }
 
 
