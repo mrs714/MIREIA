@@ -25,3 +25,11 @@ the trials should store the position of the ego car at each frame, to calculate 
 
 
 shouldnt the model predict like 5 outputs? like give it 10 frames and make it predict 5 so the outputs are consistent temporally and not jump around too much
+
+Fer que hi hagi diferents maneres de partir el train/test split
+Fer que el model compost tingui una bdu gru amb més context
+
+
+fer un anàlisi mcp dels vectors processats
+intentar millorar la velocitat del composed predictor
+
