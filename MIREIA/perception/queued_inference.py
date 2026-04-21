@@ -18,7 +18,8 @@ from MIREIA.perception.bdu_gru_model import (
     Seq2SeqBDUGRURiskPredictor,
 )
 from MIREIA.perception.e2e_model import E2EModelConfig, Seq2SeqRiskPredictor
-from MIREIA.perception.feature_integration import FeatureIntegrator
+from MIREIA.perception.feature_integration import FeatureIntegrator, FramePerception
+from MIREIA.perception.flow import EgoMotionEstimator
 
 
 @dataclass(frozen=True)
@@ -269,7 +270,12 @@ class QueuedE2ERiskInference:
 
 
 class QueuedComposedBDUGRURiskInference:
-    """Queue-based inference for the composed 32D-feature BDU-GRU model."""
+    """Queue-based inference for the composed 32D-feature BDU-GRU model.
+
+    This implementation caches per-frame perception outputs so overlapping frame pairs
+    in streaming inference do not recompute detector/depth/environment/road passes for
+    the previous frame at every step.
+    """
 
     def __init__(
         self,
@@ -283,6 +289,7 @@ class QueuedComposedBDUGRURiskInference:
         device: torch.device | str | None = None,
         max_pair_feature_cache_entries: int | None = 8192,
         max_source_cache_entries: int | None = 4096,
+        max_frame_perception_cache_entries: int | None = 512,
     ):
         self.temporal_config = temporal_config or QueuedTemporalConfig()
         self.device = _resolve_device(device)
@@ -297,13 +304,15 @@ class QueuedComposedBDUGRURiskInference:
         self.depth_estimator = depth_estimator
         self.environment_predictor = environment_predictor
         self.road_segmentation = road_segmentation
+        self._ego_motion_estimator = EgoMotionEstimator(crop_ratio=0.9)
 
         self._source_cache = _LRUCache(max_entries=max_source_cache_entries)
+        self._frame_perception_cache = _LRUCache(max_entries=max_frame_perception_cache_entries)
         self._pair_feature_cache = _LRUCache(max_entries=max_pair_feature_cache_entries)
 
         self._feature_queue: deque[torch.Tensor] = deque(maxlen=self.temporal_config.sequence_len)
         self._key_queue: deque[str] = deque(maxlen=self.temporal_config.sequence_len)
-        self._source_queue: deque[np.ndarray] = deque(maxlen=self.temporal_config.sequence_len)
+        self._frame_queue: deque[FramePerception] = deque(maxlen=self.temporal_config.sequence_len)
 
         self._is_seq2seq = isinstance(model, Seq2SeqBDUGRURiskPredictor)
 
@@ -322,6 +331,7 @@ class QueuedComposedBDUGRURiskInference:
         model_type: str | None = None,
         max_pair_feature_cache_entries: int | None = 8192,
         max_source_cache_entries: int | None = 4096,
+        max_frame_perception_cache_entries: int | None = 512,
     ) -> "QueuedComposedBDUGRURiskInference":
         resolved_device = _resolve_device(device)
         payload = torch.load(checkpoint_path, map_location=resolved_device)
@@ -365,15 +375,17 @@ class QueuedComposedBDUGRURiskInference:
             device=resolved_device,
             max_pair_feature_cache_entries=max_pair_feature_cache_entries,
             max_source_cache_entries=max_source_cache_entries,
+            max_frame_perception_cache_entries=max_frame_perception_cache_entries,
         )
 
     def reset_queue(self) -> None:
         self._feature_queue.clear()
         self._key_queue.clear()
-        self._source_queue.clear()
+        self._frame_queue.clear()
 
     def clear_preprocess_cache(self) -> None:
         self._source_cache.clear()
+        self._frame_perception_cache.clear()
         self._pair_feature_cache.clear()
 
     def add_image_path(self, image_path: str, frame_key: str | None = None) -> QueuedRiskPrediction:
@@ -386,23 +398,31 @@ class QueuedComposedBDUGRURiskInference:
             source_rgb = self._to_rgb_array(source)
             self._source_cache.put(key, source_rgb)
 
-        if len(self._key_queue) == 0:
-            prev_key = key
-            prev_rgb = source_rgb
-        else:
-            prev_key = self._key_queue[-1]
-            prev_rgb = self._source_queue[-1]
-
-        pair_key = (prev_key, key)
-        feat_hit, feature_vec = self._pair_feature_cache.get(pair_key)
-        if not feat_hit:
-            feature_vec = self.feature_integrator.extract_state_vector_from_sources(
-                source_frame1=prev_rgb,
-                source_frame2=source_rgb,
+        frame_hit, frame_perception = self._frame_perception_cache.get(key)
+        if not frame_hit:
+            frame_perception = self.feature_integrator.extract_frame_perception(
+                source_frame=source_rgb,
                 yolo_model=self.yolo_model,
                 depth_estimator=self.depth_estimator,
                 environment_predictor=self.environment_predictor,
                 road_segmentation=self.road_segmentation,
+            )
+            self._frame_perception_cache.put(key, frame_perception)
+
+        if len(self._key_queue) == 0:
+            prev_key = key
+            prev_frame = frame_perception
+        else:
+            prev_key = self._key_queue[-1]
+            prev_frame = self._frame_queue[-1]
+
+        pair_key = (prev_key, key)
+        feat_hit, feature_vec = self._pair_feature_cache.get(pair_key)
+        if not feat_hit:
+            feature_vec = self.feature_integrator.extract_state_vector_from_frame_perception(
+                frame1=prev_frame,
+                frame2=frame_perception,
+                ego_motion_estimator=self._ego_motion_estimator,
             )
             if feature_vec.ndim != 1:
                 feature_vec = feature_vec.reshape(-1)
@@ -410,10 +430,10 @@ class QueuedComposedBDUGRURiskInference:
             self._pair_feature_cache.put(pair_key, feature_vec)
 
         self._key_queue.append(key)
-        self._source_queue.append(source_rgb)
+        self._frame_queue.append(frame_perception)
         self._feature_queue.append(feature_vec)
 
-        return self._predict_from_queue(cache_hit=bool(source_hit and feat_hit))
+        return self._predict_from_queue(cache_hit=bool(feat_hit and frame_hit))
 
     def _predict_from_queue(self, cache_hit: bool) -> QueuedRiskPrediction:
         if len(self._feature_queue) < self.temporal_config.sequence_len:

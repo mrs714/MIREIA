@@ -9,7 +9,9 @@ from torchvision import transforms
 from MIREIA.config import Config
 from MIREIA.perception.e2e_model import E2EModelConfig, E2ERiskPredictor, Seq2SeqRiskPredictor
 from MIREIA.perception.training_utils import (
+	build_default_train_val_include_names,
 	build_scenario_dataloaders,
+	default_val_scenario_tokens_csv,
 	load_checkpoint,
 	save_checkpoint,
 	train_model,
@@ -43,8 +45,10 @@ def train_e2e_model(
 	learning_rate: float = 1e-4,
 	use_amp: bool = True,
 	partition_mode: str = "scenario",
-	val_scenario_tokens: str | list[str] | None = None,
+	val_scenario_tokens: str | list[str] | None = default_val_scenario_tokens_csv(),
 	frame_train_ratio: float = 0.7,
+	include_names: list[str] | None = None,
+	exclude_names: list[str] | None = None,
 	window_subset_ratio: float | None = None,
 	window_subset_mode: str = "random",
 	window_subset_seed: int = Config.RANDOM_SEED,
@@ -76,6 +80,9 @@ def train_e2e_model(
 	if transform is None:
 		transform = transforms.Compose([transforms.ToTensor()])
 
+	if partition_mode == "scenario" and include_names is None:
+		include_names = build_default_train_val_include_names(scenarios_root=Config.PATH_TO_SCENARIOS)
+
 	train_loader, val_loader, target_mode = build_scenario_dataloaders(
 		seq_len=seq_len,
 		batch_size=batch_size,
@@ -87,6 +94,8 @@ def train_e2e_model(
 		partition_mode=partition_mode,
 		val_scenario_tokens=val_scenario_tokens,
 		frame_train_ratio=frame_train_ratio,
+		include_names=include_names,
+		exclude_names=exclude_names,
 		model_type=model_type_internal,
 		m_eval_frames=m_eval_frames,
 		window_subset_ratio=window_subset_ratio,

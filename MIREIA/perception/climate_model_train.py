@@ -9,7 +9,9 @@ from torchvision import transforms
 from MIREIA.config import Config
 from MIREIA.perception.climate_model import MireiaEnvironmentClassifier
 from MIREIA.perception.training_utils import (
+    build_default_train_val_include_names,
     build_environment_dataloaders,
+    default_val_scenario_tokens_csv,
     default_environment_checkpoint_path,
     load_checkpoint,
     save_checkpoint,
@@ -49,8 +51,10 @@ def train_environment_model(
     weather_loss_weight: float = 1.0,
     scenarios_root: str | None = None,
     partition_mode: str = "scenario",
-    val_scenario_tokens: str | list[str] | None = None,
+    val_scenario_tokens: str | list[str] | None = default_val_scenario_tokens_csv(),
     frame_train_ratio: float = 0.7,
+    include_names: list[str] | None = None,
+    exclude_names: list[str] | None = None,
     subset_ratio: float | None = None,
     subset_seed: int = Config.RANDOM_SEED,
     subset_mode: str = "first",
@@ -90,6 +94,11 @@ def train_environment_model(
     transform_steps.append(transforms.ToTensor())
     transform = transforms.Compose(transform_steps)
 
+    if partition_mode == "scenario" and include_names is None:
+        include_names = build_default_train_val_include_names(
+            scenarios_root=scenarios_root or Config.PATH_TO_SCENARIOS
+        )
+
     train_loader, val_loader, climate_to_idx = build_environment_dataloaders(
         batch_size=batch_size,
         num_workers=num_workers,
@@ -99,6 +108,8 @@ def train_environment_model(
         partition_mode=partition_mode,
         val_scenario_tokens=val_scenario_tokens,
         frame_train_ratio=frame_train_ratio,
+        include_names=include_names,
+        exclude_names=exclude_names,
         subset_ratio=subset_ratio,
         subset_seed=subset_seed,
         subset_mode=subset_mode,

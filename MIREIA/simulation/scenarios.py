@@ -1,5 +1,6 @@
 import os
 import json
+from collections import Counter
 import carla
 
 from MIREIA.config import Config
@@ -69,6 +70,16 @@ EGO_CAMERA_POSITIONS: dict[str, tuple[float, float, float]] = {
     'vehicle.tesla.model3': (0.8, 0.0, 1.3),
     'vehicle.audi.etron': (0.65, 0.0, 1.4),
     'vehicle.carlamotors.carlacola': (2.2, 0.0, 1.9),
+}
+
+_MIREIA_SLOT_LETTERS = ("A", "B", "C", "D")
+_MIREIA_BASE_SLOT_MAX_SET = 16
+_MIREIA_SPLIT_FILL_TOWNS = ("Town01", "Town02", "Town03", "Town04")
+_MIREIA_SPLIT_HOLDOUT_TOWNS = ("Town05", "Town10HD")
+_MIREIA_FORCED_BASE_SET_FILL_TOWNS: dict[int, str] = {
+    9: "Town04",
+    12: "Town04",
+    15: "Town04",
 }
 
 
@@ -221,8 +232,113 @@ class Scenario:
         )
 
 
-def generate_mireia_dataset(target_count: int = 64) -> list[Scenario]:
-    """Procedural generation of MIREIA scenarios."""
+def _slot_key_from_name(scenario_name: str) -> tuple[int, str] | None:
+    """Return (set_number, letter) from names like '03C_*'; otherwise None."""
+    if len(scenario_name) < 3:
+        return None
+    set_token = scenario_name[:2]
+    letter = scenario_name[2]
+    if not set_token.isdigit() or letter not in _MIREIA_SLOT_LETTERS:
+        return None
+    return int(set_token), letter
+
+
+def _is_base_slot(slot: tuple[int, str] | None) -> bool:
+    if slot is None:
+        return False
+    set_number, _ = slot
+    return set_number <= _MIREIA_BASE_SLOT_MAX_SET
+
+
+def _replace_map_token_in_name(scenario_name: str, map_name: str) -> str:
+    parts = scenario_name.split("_")
+    if len(parts) < 3:
+        return scenario_name
+    parts[2] = map_name
+    return "_".join(parts)
+
+
+def _clone_scenario_with_map(scenario: Scenario, map_name: str) -> Scenario:
+    payload = scenario.to_dict()
+    payload["map_name"] = map_name
+    payload["name"] = _replace_map_token_in_name(scenario.name, map_name)
+    return Scenario(**payload)
+
+
+def _pick_balanced_town(town_counts: Counter[str], fill_towns: tuple[str, ...]) -> str:
+    min_count = min(int(town_counts.get(town, 0)) for town in fill_towns)
+    for town in fill_towns:
+        if int(town_counts.get(town, 0)) == min_count:
+            return town
+    return fill_towns[0]
+
+
+def _pick_split_aware_fill_town(
+    slot: tuple[int, str] | None,
+    town_counts: Counter[str],
+    fill_towns: tuple[str, ...],
+    forced_set_fill_towns: dict[int, str],
+) -> str:
+    """
+    Pick refill town for a base slot.
+
+    Allows per-set hard overrides (e.g. 09/12/15 -> Town04) and falls back
+    to balanced assignment across fill_towns.
+    """
+    if slot is not None:
+        set_number, _ = slot
+        forced = forced_set_fill_towns.get(set_number)
+        if forced and forced in fill_towns:
+            return forced
+    return _pick_balanced_town(town_counts, fill_towns)
+
+
+def _load_existing_slot_state(
+    scenarios_root: str,
+    fill_towns: tuple[str, ...],
+) -> tuple[set[tuple[int, str]], Counter[str]]:
+    """
+    Scan existing scenario folders and return:
+    - occupied slot keys (01A..16D)
+    - current base-slot counts for fill_towns
+    """
+    occupied_slots: set[tuple[int, str]] = set()
+    base_town_counts: Counter[str] = Counter()
+
+    if not os.path.isdir(scenarios_root):
+        return occupied_slots, base_town_counts
+
+    for entry in sorted(os.listdir(scenarios_root)):
+        scenario_dir = os.path.join(scenarios_root, entry)
+        if not os.path.isdir(scenario_dir):
+            continue
+        if entry in {"videos", "__pycache__"}:
+            continue
+
+        slot = _slot_key_from_name(entry)
+        if not _is_base_slot(slot):
+            continue
+        occupied_slots.add(slot)  # Any folder occupying this slot should be preserved.
+
+        scenario_json_path = os.path.join(scenario_dir, "scenario.json")
+        if not os.path.isfile(scenario_json_path):
+            continue
+
+        try:
+            with open(scenario_json_path, "r", encoding="utf-8") as handle:
+                scenario_meta = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        map_name = str(scenario_meta.get("map_name", "")).strip()
+        if map_name in fill_towns:
+            base_town_counts[map_name] += 1
+
+    return occupied_slots, base_town_counts
+
+
+def _build_legacy_mireia_dataset(target_count: int = 64) -> list[Scenario]:
+    """Legacy procedural generation of MIREIA scenarios (preserved behavior)."""
     weathers = list(_WEATHER_PRESETS.keys())
 
     # 4 distinct ego vehicles to learn different camera heights and physics
@@ -362,9 +478,118 @@ def generate_mireia_dataset(target_count: int = 64) -> list[Scenario]:
     return scenarios
 
 
+def generate_mireia_dataset(
+    target_count: int = 64,
+    *,
+    split_aware: bool = False,
+    fill_only_missing_slots: bool = False,
+    scenarios_root: str | None = None,
+    split_fill_towns: tuple[str, ...] = _MIREIA_SPLIT_FILL_TOWNS,
+    split_holdout_towns: tuple[str, ...] = _MIREIA_SPLIT_HOLDOUT_TOWNS,
+    forced_set_fill_towns: dict[int, str] | None = None,
+) -> list[Scenario]:
+    """
+    Generate MIREIA scenarios.
+
+    Defaults preserve legacy behavior.
+
+    Optional split-aware mode can remap base-slot holdout towns to train-like towns
+    and optionally return only missing base slots based on existing folders.
+
+    Typical post-migration usage:
+        generate_mireia_dataset(
+            split_aware=True,
+            fill_only_missing_slots=True,
+            scenarios_root=Config.PATH_TO_SCENARIOS,
+        )
+    """
+    scenarios = _build_legacy_mireia_dataset(target_count=target_count)
+
+    # If we are filling only missing slots, use split-aware remapping by default
+    # to avoid reintroducing Town04/Town10HD into vacated base slots.
+    if fill_only_missing_slots:
+        split_aware = True
+
+    if not split_aware and not fill_only_missing_slots:
+        return scenarios
+
+    fill_towns = tuple(split_fill_towns)
+    holdout_towns = set(split_holdout_towns)
+    root = scenarios_root or Config.PATH_TO_SCENARIOS
+    forced_by_set = dict(_MIREIA_FORCED_BASE_SET_FILL_TOWNS)
+    if forced_set_fill_towns is not None:
+        forced_by_set.update(forced_set_fill_towns)
+
+    occupied_slots: set[tuple[int, str]] = set()
+    town_counts: Counter[str] = Counter({town: 0 for town in fill_towns})
+
+    if fill_only_missing_slots:
+        occupied_slots, existing_counts = _load_existing_slot_state(root, fill_towns)
+        town_counts.update(existing_counts)
+    else:
+        for scenario in scenarios:
+            slot = _slot_key_from_name(scenario.name)
+            if _is_base_slot(slot) and scenario.map_name in fill_towns:
+                town_counts[scenario.map_name] += 1
+
+    filtered: list[Scenario] = []
+    for scenario in scenarios:
+        slot = _slot_key_from_name(scenario.name)
+
+        # Preserve all already-existing base slots and only create what is missing.
+        if fill_only_missing_slots and _is_base_slot(slot) and slot in occupied_slots:
+            continue
+
+        current = scenario
+        if split_aware and _is_base_slot(slot) and scenario.map_name in holdout_towns:
+            next_town = _pick_split_aware_fill_town(
+                slot=slot,
+                town_counts=town_counts,
+                fill_towns=fill_towns,
+                forced_set_fill_towns=forced_by_set,
+            )
+            current = _clone_scenario_with_map(scenario, next_town)
+
+        if _is_base_slot(slot) and current.map_name in fill_towns:
+            town_counts[current.map_name] += 1
+
+        filtered.append(current)
+
+    return filtered
+
+
+def save_mireia_scenarios(
+    scenarios: list[Scenario],
+    *,
+    overwrite_existing: bool = False,
+) -> tuple[list[str], list[str]]:
+    """
+    Save scenarios to disk.
+
+    Returns (saved_names, skipped_names).
+    """
+    saved: list[str] = []
+    skipped: list[str] = []
+
+    for scenario in scenarios:
+        if (
+            not overwrite_existing
+            and os.path.isdir(scenario.folder_path)
+            and os.path.isfile(scenario.json_path)
+        ):
+            skipped.append(scenario.name)
+            continue
+
+        scenario.save()
+        saved.append(scenario.name)
+
+    return saved, skipped
+
+
 __all__ = [
     "Scenario",
     "EGO_CAMERA_POSITIONS",
     "get_default_ego_camera_position",
     "generate_mireia_dataset",
+    "save_mireia_scenarios",
 ]

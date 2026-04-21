@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Dict, Iterable, Optional, Tuple
 
@@ -13,6 +14,54 @@ from MIREIA.data_collection.database import create_scenario_dataloaders
 from MIREIA.data_collection.scenario_multitask_dataset import (
     create_environment_dataloaders,
 )
+
+
+DEFAULT_VAL_SCENARIO_TOKENS: tuple[str, ...] = ("Town05",)
+
+_SLOT_NAME_RE = re.compile(r"^(?P<set>\d{2})(?P<letter>[A-D])_")
+
+
+def default_val_scenario_tokens_csv() -> str:
+    return ",".join(DEFAULT_VAL_SCENARIO_TOKENS)
+
+
+def build_default_train_val_include_names(
+    scenarios_root: Optional[str] = None,
+    *,
+    train_max_set: int = 16,
+    include_val_set: int | None = None,
+) -> list[str]:
+    """
+    Return scenario folder names used by the default split policy.
+
+    By default this includes only base slot sets 01..train_max_set.
+    Optionally include one extra set (e.g. include_val_set=17).
+
+    Slots above these limits are treated as held-out/test-only and excluded.
+    """
+    root = scenarios_root or Config.PATH_TO_SCENARIOS
+    if not os.path.isdir(root):
+        return []
+
+    include_names: list[str] = []
+    for entry in sorted(os.listdir(root)):
+        scenario_dir = os.path.join(root, entry)
+        if not os.path.isdir(scenario_dir):
+            continue
+        if entry in {"videos", "__pycache__"}:
+            continue
+
+        match = _SLOT_NAME_RE.match(entry)
+        if not match:
+            continue
+
+        set_number = int(match.group("set"))
+        if set_number <= train_max_set or (
+            include_val_set is not None and set_number == include_val_set
+        ):
+            include_names.append(entry)
+
+    return include_names
 
 
 def _is_sequence_model_type(model_type: str) -> bool:

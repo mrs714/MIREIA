@@ -20,6 +20,16 @@ class _ObjectMetrics:
     cy: float
 
 
+@dataclass(frozen=True)
+class FramePerception:
+    frame_rgb: np.ndarray
+    yolo_tracks: list[dict[str, Any]]
+    depth_map: np.ndarray
+    road_relative_size: float
+    day_prob: float
+    climate_probs: list[float]
+
+
 class FeatureIntegrator:
     """Build a strict 32-feature state tensor from multi-model perception outputs.
 
@@ -79,44 +89,85 @@ class FeatureIntegrator:
             ego_motion_estimator: Optional EgoMotionEstimator. If None, one is created.
         """
 
-        frame1_rgb, _ = self._to_rgb_array(source_frame1)
-        frame2_rgb, _ = self._to_rgb_array(source_frame2)
-
-        if frame1_rgb.shape[:2] != frame2_rgb.shape[:2]:
-            raise ValueError(
-                "Both input frames must have the same spatial shape. "
-                f"Got {frame1_rgb.shape[:2]} and {frame2_rgb.shape[:2]}"
-            )
-
-        yolo_tracks1 = track_objects(model=yolo_model, frame_rgb=frame1_rgb)
-        yolo_tracks2 = track_objects(model=yolo_model, frame_rgb=frame2_rgb)
-
-        depth_map1 = np.asarray(depth_estimator.predict(frame1_rgb).depth_map, dtype=np.float32)
-        depth_map2 = np.asarray(depth_estimator.predict(frame2_rgb).depth_map, dtype=np.float32)
-
-        ego_estimator = ego_motion_estimator or EgoMotionEstimator(crop_ratio=0.9)
-        bg_flow_x, bg_flow_y = ego_estimator.estimate_motion(frame1_rgb, frame2_rgb)
-
-        road_relative_size = self._infer_road_relative_size(
-            frame_rgb=frame2_rgb,
+        frame1 = self.extract_frame_perception(
+            source_frame=source_frame1,
+            yolo_model=yolo_model,
+            depth_estimator=depth_estimator,
+            environment_predictor=environment_predictor,
+            road_segmentation=road_segmentation,
+        )
+        frame2 = self.extract_frame_perception(
+            source_frame=source_frame2,
+            yolo_model=yolo_model,
+            depth_estimator=depth_estimator,
+            environment_predictor=environment_predictor,
             road_segmentation=road_segmentation,
         )
 
+        return self.extract_state_vector_from_frame_perception(
+            frame1=frame1,
+            frame2=frame2,
+            ego_motion_estimator=ego_motion_estimator,
+        )
+
+    def extract_frame_perception(
+        self,
+        source_frame: Any,
+        *,
+        yolo_model: Any,
+        depth_estimator: Any,
+        environment_predictor: Any | None = None,
+        road_segmentation: Mapping[str, Any] | Any | None = None,
+    ) -> FramePerception:
+        frame_rgb, _ = self._to_rgb_array(source_frame)
+
+        yolo_tracks = track_objects(model=yolo_model, frame_rgb=frame_rgb)
+        depth_map = np.asarray(depth_estimator.predict(frame_rgb).depth_map, dtype=np.float32)
+
+        road_relative_size = self._infer_road_relative_size(
+            frame_rgb=frame_rgb,
+            road_segmentation=road_segmentation,
+        )
         day_prob, climate_probs = self._infer_environment_probs(
-            frame_rgb=frame2_rgb,
+            frame_rgb=frame_rgb,
             environment_predictor=environment_predictor,
         )
 
+        return FramePerception(
+            frame_rgb=frame_rgb,
+            yolo_tracks=yolo_tracks,
+            depth_map=depth_map,
+            road_relative_size=float(road_relative_size),
+            day_prob=float(day_prob),
+            climate_probs=[float(v) for v in climate_probs],
+        )
+
+    def extract_state_vector_from_frame_perception(
+        self,
+        frame1: FramePerception,
+        frame2: FramePerception,
+        *,
+        ego_motion_estimator: EgoMotionEstimator | None = None,
+    ) -> torch.Tensor:
+        if frame1.frame_rgb.shape[:2] != frame2.frame_rgb.shape[:2]:
+            raise ValueError(
+                "Both input frames must have the same spatial shape. "
+                f"Got {frame1.frame_rgb.shape[:2]} and {frame2.frame_rgb.shape[:2]}"
+            )
+
+        ego_estimator = ego_motion_estimator or EgoMotionEstimator(crop_ratio=0.9)
+        bg_flow_x, bg_flow_y = ego_estimator.estimate_motion(frame1.frame_rgb, frame2.frame_rgb)
+
         return self.extract_state_vector(
-            yolo_tracks1=yolo_tracks1,
-            yolo_tracks2=yolo_tracks2,
-            depth_map1=depth_map1,
-            depth_map2=depth_map2,
+            yolo_tracks1=frame1.yolo_tracks,
+            yolo_tracks2=frame2.yolo_tracks,
+            depth_map1=frame1.depth_map,
+            depth_map2=frame2.depth_map,
             bg_flow_x=bg_flow_x,
             bg_flow_y=bg_flow_y,
-            road_relative_size=road_relative_size,
-            day_prob=day_prob,
-            climate_probs=climate_probs,
+            road_relative_size=frame2.road_relative_size,
+            day_prob=frame2.day_prob,
+            climate_probs=frame2.climate_probs,
         )
 
     def extract_state_vector(
@@ -601,4 +652,4 @@ class FeatureIntegrator:
         return arr[:13]
 
 
-__all__ = ["FeatureIntegrator"]
+__all__ = ["FeatureIntegrator", "FramePerception"]

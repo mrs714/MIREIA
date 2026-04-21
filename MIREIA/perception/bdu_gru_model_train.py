@@ -16,6 +16,8 @@ from MIREIA.perception.bdu_gru_model import (
     Seq2SeqBDUGRURiskPredictor,
 )
 from MIREIA.perception.training_utils import (
+    build_default_train_val_include_names,
+    default_val_scenario_tokens_csv,
     load_checkpoint,
     save_checkpoint,
     train_model,
@@ -116,7 +118,7 @@ def train_bdu_gru_model(
     use_amp: bool = True,
     scenarios_root: str | None = None,
     partition_mode: str = "scenario",
-    val_scenario_tokens: str | list[str] | None = None,
+    val_scenario_tokens: str | list[str] | None = default_val_scenario_tokens_csv(),
     frame_train_ratio: float = 0.7,
     include_names: list[str] | None = None,
     exclude_names: list[str] | None = None,
@@ -166,6 +168,11 @@ def train_bdu_gru_model(
         pin_memory = torch.cuda.is_available()
     if persistent_workers is None:
         persistent_workers = num_workers > 0
+
+    if partition_mode == "scenario" and include_names is None:
+        include_names = build_default_train_val_include_names(
+            scenarios_root=scenarios_root or Config.PATH_TO_SCENARIOS
+        )
 
     train_loader, val_loader = create_feature_sequence_dataloaders(
         seq_len=seq_len,

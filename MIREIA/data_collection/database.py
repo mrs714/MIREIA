@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from MIREIA.config import Config
 from MIREIA.data_collection.dataset_utils import (
 	BaseSequenceDataset,
+	DEFAULT_VAL_SCENARIO_TOKENS_CSV,
 	DEFAULT_IMAGE_SIZE,
 	compute_frame_split_boundary,
 	load_jsonl_records,
@@ -38,12 +39,12 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 		transform: Optional[Callable] = None,
 		target_mode: str = "last",
 		risk_key: str = "ground_truth_risk",
-		expected_scenarios: int = 54,
+		expected_scenarios: Optional[int] = None,
 		include_names: Optional[Iterable[str]] = None,
 		exclude_names: Optional[Iterable[str]] = None,
 		partition_mode: str = "scenario",
 		val_scenario_tokens: str | Iterable[str] | None = None,
-		town10hd_token: str = "Town10HD",
+		town10hd_token: str = DEFAULT_VAL_SCENARIO_TOKENS_CSV,
 		frame_train_ratio: float = 0.7,
 		normalize_paths: bool = True,
 		subset_ratio: Optional[float] = None,

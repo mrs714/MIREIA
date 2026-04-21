@@ -11,6 +11,7 @@ from torchvision import transforms
 
 DEFAULT_IMAGE_SIZE = (512, 512)
 VALID_PARTITION_MODES = {"scenario", "frame"}
+DEFAULT_VAL_SCENARIO_TOKENS_CSV = "Town05"
 
 
 def normalize_partition_mode(partition_mode: str) -> str:
@@ -22,7 +23,7 @@ def normalize_partition_mode(partition_mode: str) -> str:
 
 def normalize_validation_tokens(
     tokens: str | Iterable[str] | None,
-    fallback_token: str | None = "Town10HD",
+    fallback_token: str | None = DEFAULT_VAL_SCENARIO_TOKENS_CSV,
 ) -> tuple[str, ...]:
     parsed: list[str] = []
 

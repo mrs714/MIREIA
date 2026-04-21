@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from MIREIA.config import Config
 from MIREIA.data_collection.dataset_utils import (
+    DEFAULT_VAL_SCENARIO_TOKENS_CSV,
     compute_frame_split_boundary,
     load_jsonl_records,
     normalize_frame_train_ratio,
@@ -53,7 +54,7 @@ class ScenarioFeatureSequenceDataset(Dataset):
         exclude_names: Optional[Iterable[str]] = None,
         partition_mode: str = "scenario",
         val_scenario_tokens: str | Iterable[str] | None = None,
-        town10hd_token: str = "Town10HD",
+        town10hd_token: str = DEFAULT_VAL_SCENARIO_TOKENS_CSV,
         frame_train_ratio: float = 0.7,
         subset_ratio: Optional[float] = None,
         subset_seed: int = Config.RANDOM_SEED,

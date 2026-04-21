@@ -1,0 +1,188 @@
+{
+    "created_at": "20260420_231221",
+    "scenarios_root": "t:\\TFG\\MIREIA\\scenarios",
+    "moved": [
+        {
+            "from": "02C_CloudyNoon_Town04_HighVol",
+            "to": "17A_CloudyNoon_Town04_HighVol",
+            "map_name": "Town04"
+        },
+        {
+            "from": "02D_CloudyNoon_Town04_LowVol",
+            "to": "17B_CloudyNoon_Town04_LowVol",
+            "map_name": "Town04"
+        },
+        {
+            "from": "03C_WetNoon_Town10HD_HighVol",
+            "to": "17C_WetNoon_Town10HD_HighVol",
+            "map_name": "Town10HD"
+        },
+        {
+            "from": "03D_WetNoon_Town10HD_LowVol",
+            "to": "17D_WetNoon_Town10HD_LowVol",
+            "map_name": "Town10HD"
+        },
+        {
+            "from": "05C_SoftRainNoon_Town04_HighVol",
+            "to": "18A_SoftRainNoon_Town04_HighVol",
+            "map_name": "Town04"
+        },
+        {
+            "from": "05D_SoftRainNoon_Town04_LowVol",
+            "to": "18B_SoftRainNoon_Town04_LowVol",
+            "map_name": "Town04"
+        },
+        {
+            "from": "06C_MidRainyNoon_Town10HD_HighVol",
+            "to": "18C_MidRainyNoon_Town10HD_HighVol",
+            "map_name": "Town10HD"
+        },
+        {
+            "from": "06D_MidRainyNoon_Town10HD_LowVol",
+            "to": "18D_MidRainyNoon_Town10HD_LowVol",
+            "map_name": "Town10HD"
+        },
+        {
+            "from": "08C_ClearSunset_Town04_HighVol",
+            "to": "19A_ClearSunset_Town04_HighVol",
+            "map_name": "Town04"
+        },
+        {
+            "from": "08D_ClearSunset_Town04_LowVol",
+            "to": "19B_ClearSunset_Town04_LowVol",
+            "map_name": "Town04"
+        },
+        {
+            "from": "09C_CloudySunset_Town10HD_HighVol",
+            "to": "19C_CloudySunset_Town10HD_HighVol",
+            "map_name": "Town10HD"
+        },
+        {
+            "from": "09D_CloudySunset_Town10HD_LowVol",
+            "to": "19D_CloudySunset_Town10HD_LowVol",
+            "map_name": "Town10HD"
+        },
+        {
+            "from": "11C_WetCloudySunset_Town04_HighVol",
+            "to": "20A_WetCloudySunset_Town04_HighVol",
+            "map_name": "Town04"
+        },
+        {
+            "from": "11D_WetCloudySunset_Town04_LowVol",
+            "to": "20B_WetCloudySunset_Town04_LowVol",
+            "map_name": "Town04"
+        },
+        {
+            "from": "12C_SoftRainSunset_Town10HD_HighVol",
+            "to": "20C_SoftRainSunset_Town10HD_HighVol",
+            "map_name": "Town10HD"
+        },
+        {
+            "from": "12D_SoftRainSunset_Town10HD_LowVol",
+            "to": "20D_SoftRainSunset_Town10HD_LowVol",
+            "map_name": "Town10HD"
+        },
+        {
+            "from": "14C_HardRainSunset_Town04_HighVol",
+            "to": "21A_HardRainSunset_Town04_HighVol",
+            "map_name": "Town04"
+        },
+        {
+            "from": "14D_HardRainSunset_Town04_LowVol",
+            "to": "21B_HardRainSunset_Town04_LowVol",
+            "map_name": "Town04"
+        },
+        {
+            "from": "15C_WetNoon_Town10HD_HighVol_NoFog_Night",
+            "to": "21C_WetNoon_Town10HD_HighVol_NoFog_Night",
+            "map_name": "Town10HD"
+        },
+        {
+            "from": "15D_HardRainNoon_Town10HD_LowVol_NoFog_Night",
+            "to": "21D_HardRainNoon_Town10HD_LowVol_NoFog_Night",
+            "map_name": "Town10HD"
+        }
+    ],
+    "refilled": [
+        {
+            "slot": "02C_CloudyNoon_Town04_HighVol",
+            "map_name": "Town03"
+        },
+        {
+            "slot": "02D_CloudyNoon_Town04_LowVol",
+            "map_name": "Town05"
+        },
+        {
+            "slot": "03C_WetNoon_Town10HD_HighVol",
+            "map_name": "Town03"
+        },
+        {
+            "slot": "03D_WetNoon_Town10HD_LowVol",
+            "map_name": "Town05"
+        },
+        {
+            "slot": "05C_SoftRainNoon_Town04_HighVol",
+            "map_name": "Town03"
+        },
+        {
+            "slot": "05D_SoftRainNoon_Town04_LowVol",
+            "map_name": "Town05"
+        },
+        {
+            "slot": "06C_MidRainyNoon_Town10HD_HighVol",
+            "map_name": "Town01"
+        },
+        {
+            "slot": "06D_MidRainyNoon_Town10HD_LowVol",
+            "map_name": "Town02"
+        },
+        {
+            "slot": "08C_ClearSunset_Town04_HighVol",
+            "map_name": "Town03"
+        },
+        {
+            "slot": "08D_ClearSunset_Town04_LowVol",
+            "map_name": "Town05"
+        },
+        {
+            "slot": "09C_CloudySunset_Town10HD_HighVol",
+            "map_name": "Town01"
+        },
+        {
+            "slot": "09D_CloudySunset_Town10HD_LowVol",
+            "map_name": "Town02"
+        },
+        {
+            "slot": "11C_WetCloudySunset_Town04_HighVol",
+            "map_name": "Town03"
+        },
+        {
+            "slot": "11D_WetCloudySunset_Town04_LowVol",
+            "map_name": "Town05"
+        },
+        {
+            "slot": "12C_SoftRainSunset_Town10HD_HighVol",
+            "map_name": "Town01"
+        },
+        {
+            "slot": "12D_SoftRainSunset_Town10HD_LowVol",
+            "map_name": "Town02"
+        },
+        {
+            "slot": "14C_HardRainSunset_Town04_HighVol",
+            "map_name": "Town03"
+        },
+        {
+            "slot": "14D_HardRainSunset_Town04_LowVol",
+            "map_name": "Town05"
+        },
+        {
+            "slot": "15C_WetNoon_Town10HD_HighVol_NoFog_Night",
+            "map_name": "Town01"
+        },
+        {
+            "slot": "15D_HardRainNoon_Town10HD_LowVol_NoFog_Night",
+            "map_name": "Town02"
+        }
+    ]
+}

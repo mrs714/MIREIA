@@ -1,0 +1,36 @@
+{
+    "name": "15B_CloudyNoon_Town04_LowVol_NoFog_Night",
+    "description": "Nighttime (CloudyNoon baseline) with no extra fog, driving vehicle.tesla.model3.",
+    "map_name": "Town04",
+    "weather": {
+        "cloudiness": 60.0,
+        "precipitation": 0.0,
+        "precipitation_deposits": 0.0,
+        "wind_intensity": 10.0,
+        "sun_azimuth_angle": -1.0,
+        "sun_altitude_angle": -90.0,
+        "fog_density": 3.0,
+        "fog_distance": 0.75,
+        "wetness": 0.0,
+        "fog_falloff": 0.10000000149011612,
+        "scattering_intensity": 1.0,
+        "mie_scattering_scale": 0.029999999329447746,
+        "rayleigh_scattering_scale": 0.03310000151395798,
+        "dust_storm": 0.0
+    },
+    "ego_blueprint": "vehicle.tesla.model3",
+    "ego_camera_position": [
+        0.8,
+        0.0,
+        1.3
+    ],
+    "ego_spawn_index": null,
+    "ego_spawn_point": null,
+    "ego_autopilot": true,
+    "n_vehicles": 40,
+    "n_pedestrians": 20,
+    "pct_running": 0.0,
+    "pct_crossing": 5.0,
+    "safe_vehicles": true,
+    "seed": 42
+}
