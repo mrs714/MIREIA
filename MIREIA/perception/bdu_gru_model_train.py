@@ -142,6 +142,7 @@ def train_bdu_gru_model(
     dynamic_loss_alpha: float = 0.0,
     dynamic_loss_beta: float = 0.0,
     grad_accum_steps: int = 1,
+    optimize_windows_in_memory_loader: bool = True,
 ) -> dict[str, object]:
     """Train or resume BDU-GRU risk model over per-frame 32D feature vectors."""
     if resume_epochs <= 0:
@@ -166,8 +167,20 @@ def train_bdu_gru_model(
 
     if pin_memory is None:
         pin_memory = torch.cuda.is_available()
+
+    # This dataset pre-materializes full scenario tensors in RAM. On Windows,
+    # spawning worker processes can duplicate large state and dominate epoch time.
+    if optimize_windows_in_memory_loader and os.name == "nt" and num_workers > 0:
+        print(
+            "[info] Windows in-memory feature dataset detected: forcing num_workers=0 "
+            "for faster, stable epoch throughput."
+        )
+        num_workers = 0
+
     if persistent_workers is None:
         persistent_workers = num_workers > 0
+    elif num_workers == 0:
+        persistent_workers = False
 
     if partition_mode == "scenario" and include_names is None:
         include_names = build_default_train_val_include_names(

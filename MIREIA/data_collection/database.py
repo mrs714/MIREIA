@@ -103,8 +103,8 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 
 		self._sources: List[ScenarioSource] = sources
 		self._records: List[List[dict]] = [load_jsonl_records(s.jsonl_path) for s in sources]
-		self._index: List[tuple[int, int]] = self._build_index_for_split(self._records, seq_len)
-		self._index = self._apply_window_subset(self._index)
+		self._full_index: List[tuple[int, int]] = self._build_index_for_split(self._records, seq_len)
+		self._index: List[tuple[int, int]] = self._apply_window_subset(self._full_index)
 
 	def __len__(self) -> int:
 		return len(self._index)
@@ -118,6 +118,11 @@ class ScenarioSequenceDataset(BaseSequenceDataset):
 		seq_tensor = torch.stack(images, dim=0)
 		target = self._build_target(window)
 		return seq_tensor, target
+
+	def resample_windows(self, seed: int) -> None:
+		"""Re-apply window subset sampling with a new seed (call before each epoch for fresh random draws)."""
+		self.window_subset_seed = seed
+		self._index = self._apply_window_subset(self._full_index)
 
 	def _discover_scenarios(self) -> List[ScenarioSource]:
 		if not os.path.isdir(self.scenarios_root):

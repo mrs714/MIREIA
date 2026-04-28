@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Callable, Dict, Iterable, Optional, Tuple
 
 import torch
 from torch import nn
@@ -155,6 +155,8 @@ def train_model(
     grad_clip: Optional[float] = None,
     use_amp: bool = False,
     grad_accum_steps: int = 1,
+    on_epoch_start: Optional[Callable[[int], None]] = None,
+    on_epoch_end: Optional[Callable[[int, Dict[str, list]], None]] = None,
 ) -> Dict[str, Iterable[float]]:
     criterion = criterion or nn.MSELoss()
     if history is None:
@@ -168,6 +170,9 @@ def train_model(
     use_cuda_timing = device.type == "cuda"
 
     for epoch in range(start_epoch, start_epoch + epochs):
+        if on_epoch_start is not None:
+            on_epoch_start(epoch)
+
         if use_cuda_timing:
             epoch_start = torch.cuda.Event(enable_timing=True)
             epoch_end = torch.cuda.Event(enable_timing=True)
@@ -279,6 +284,9 @@ def train_model(
         else:
             elapsed = time.perf_counter() - epoch_start_time
         print(f"Epoch time: {elapsed:.1f}s")
+
+        if on_epoch_end is not None:
+            on_epoch_end(epoch, history)
 
     return history
 
