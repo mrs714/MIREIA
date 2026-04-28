@@ -33,3 +33,7 @@ Fer que el model compost tingui una bdu gru amb més context
 fer un anàlisi mcp dels vectors processats
 intentar millorar la velocitat del composed predictor
 
+per una banda, haig de separar els mapes en train val test, train i val que s'assembli, test que sigui el diferent
+- Train: 1,2,3,5
+- Val: 4
+- Test: 10hd
