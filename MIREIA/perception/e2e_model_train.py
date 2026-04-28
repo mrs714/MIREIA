@@ -159,6 +159,33 @@ def train_e2e_model(
 	else:
 		print("No checkpoint found. Starting fresh.")
 
+	train_dataset = train_loader.dataset
+	_resample_windows = window_subset_mode == "random" and window_subset_ratio is not None
+
+	def _on_epoch_start(epoch: int) -> None:
+		if _resample_windows and hasattr(train_dataset, "resample_windows"):
+			train_dataset.resample_windows(window_subset_seed + epoch)
+			print(f"[epoch {epoch}] resampled train windows (seed={window_subset_seed + epoch}, n={len(train_dataset)})")
+
+	def _on_epoch_end(epoch: int, hist: dict) -> None:
+		save_checkpoint(
+			checkpoint_path=checkpoint_path,
+			model=model,
+			optimizer=optimizer,
+			history=hist,
+			epoch=epoch,
+			extra={
+				"model_type": _public_model_type(model_type_internal),
+				"model_type_internal": model_type_internal,
+				"m_eval_frames": m_eval_frames,
+				"seq_len": seq_len,
+				"target_mode": target_mode,
+				"use_amp": use_amp,
+				"crop_bbox_key": crop_bbox_key,
+			},
+		)
+		print(f"[epoch {epoch}] checkpoint saved: {checkpoint_path}")
+
 	history = train_model(
 		model=model,
 		train_loader=train_loader,
@@ -174,6 +201,8 @@ def train_e2e_model(
 		use_amp=use_amp,
 		grad_clip=grad_clip,
 		grad_accum_steps=grad_accum_steps,
+		on_epoch_start=_on_epoch_start,
+		on_epoch_end=_on_epoch_end,
 	)
 
 	final_epoch = start_epoch + resume_epochs - 1
