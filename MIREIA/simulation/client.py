@@ -1,1 +1,0 @@
-# Connect to server, set synchronous mode
