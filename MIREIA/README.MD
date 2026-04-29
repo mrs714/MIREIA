@@ -92,4 +92,5 @@ Each scenario slot has 4 variants (letters A–D) covering high/low traffic and 
 | `train_demo.ipynb` | Full training pipeline (Climate → E2E → Road Seg → Speed Fusion → BDU-GRU search) |
 | `queued_inference_demo.ipynb` | Offline inference comparison: E2E vs Composed BDU-GRU |
 | `composed_inference_analysis.ipynb` | Benchmark composed model latency, FPS, and call counts |
+| `trial_builder.ipynb` | Create and save `TrialDefinition` objects — interactive route picker, no simulation run |
 | `trial_demo.ipynb` | Live CARLA trial execution with streaming predictor and route comparison |

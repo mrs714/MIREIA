@@ -13,6 +13,7 @@
 !model_demo.ipynb
 !queued_inference_demo.ipynb
 !feature_analysis.ipynb
+!composed_inference_analysis.ipynb
 
 # 4. Allow a specific folder
 # Note: You must allow the folder itself AND everything inside it
