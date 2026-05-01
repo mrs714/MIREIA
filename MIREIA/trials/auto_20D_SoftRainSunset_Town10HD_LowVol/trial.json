@@ -1,0 +1,24 @@
+{
+  "name": "auto_20D_SoftRainSunset_Town10HD_LowVol",
+  "route_start": [
+    88.77238464355469,
+    -52.73203659057617,
+    0.0
+  ],
+  "route_end": [
+    105.82524871826172,
+    25.831296920776367,
+    0.0
+  ],
+  "description": "Auto-generated trial from scenario 20D_SoftRainSunset_Town10HD_LowVol.",
+  "map_name": "Town10HD",
+  "weather": "SoftRainSunset",
+  "n_vehicles": 40,
+  "n_pedestrians": 20,
+  "pct_running": 0.0,
+  "pct_crossing": 5.0,
+  "safe_vehicles": true,
+  "seed": 42,
+  "sync_mode": true,
+  "fixed_delta": 0.05
+}

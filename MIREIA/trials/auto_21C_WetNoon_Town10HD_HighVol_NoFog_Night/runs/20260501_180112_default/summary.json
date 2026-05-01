@@ -1,0 +1,60 @@
+{
+  "trial_name": "auto_21C_WetNoon_Town10HD_HighVol_NoFog_Night",
+  "subtrial_name": "default",
+  "run_id": "20260501_180112_default",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_21C_WetNoon_Town10HD_HighVol_NoFog_Night\\runs\\20260501_180112_default",
+  "num_frames": 1200,
+  "duration_s": 283.9067521095276,
+  "traveled_m": 634.4152933438731,
+  "risk_auc": 885.659619914589,
+  "risk_distance_integral": 2449.105100586394,
+  "risk_per_meter": 3.8604130863202597,
+  "predicted_risk_auc": null,
+  "finished": false,
+  "metadata": {
+    "map_name": "Town10HD",
+    "weather": {
+      "cloudiness": 5.0,
+      "precipitation": 0.0,
+      "precipitation_deposits": 50.0,
+      "wind_intensity": 10.0,
+      "sun_azimuth_angle": -1.0,
+      "sun_altitude_angle": -90.0,
+      "fog_density": 3.0,
+      "fog_distance": 0.75,
+      "wetness": 0.0,
+      "fog_falloff": 0.10000000149011612,
+      "scattering_intensity": 1.0,
+      "mie_scattering_scale": 0.029999999329447746,
+      "rayleigh_scattering_scale": 0.03310000151395798,
+      "dust_storm": 0.0
+    },
+    "route_waypoints": [
+      [
+        -45.31687927246094,
+        -3.694387197494507,
+        0.0
+      ],
+      [
+        -106.25785064697266,
+        5.106363773345947,
+        0.0
+      ],
+      [
+        -45.188072204589844,
+        -37.32765579223633,
+        0.0
+      ],
+      [
+        97.18785858154297,
+        103.31015014648438,
+        0.0
+      ],
+      [
+        43.92407989501953,
+        44.54938888549805,
+        0.0
+      ]
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "auto_17B_WetNoon_Town05_LowVol",
+  "route_start": [
+    114.24642181396484,
+    -203.4127960205078,
+    0.0
+  ],
+  "route_end": [
+    -246.9274139404297,
+    43.36857986450195,
+    0.0
+  ],
+  "description": "Auto-generated trial from scenario 17B_WetNoon_Town05_LowVol.",
+  "map_name": "Town05",
+  "weather": "WetNoon",
+  "n_vehicles": 40,
+  "n_pedestrians": 20,
+  "pct_running": 0.0,
+  "pct_crossing": 5.0,
+  "safe_vehicles": true,
+  "seed": 42,
+  "sync_mode": true,
+  "fixed_delta": 0.05
+}

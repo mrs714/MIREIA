@@ -1,0 +1,24 @@
+{
+  "name": "auto_18A_MidRainyNoon_Town05_HighVol",
+  "route_start": [
+    -85.6649398803711,
+    191.10244750976562,
+    0.0
+  ],
+  "route_end": [
+    -61.75399398803711,
+    -0.8003711104393005,
+    0.0
+  ],
+  "description": "Auto-generated trial from scenario 18A_MidRainyNoon_Town05_HighVol.",
+  "map_name": "Town05",
+  "weather": "MidRainyNoon",
+  "n_vehicles": 80,
+  "n_pedestrians": 50,
+  "pct_running": 15.0,
+  "pct_crossing": 10.0,
+  "safe_vehicles": false,
+  "seed": 42,
+  "sync_mode": true,
+  "fixed_delta": 0.05
+}

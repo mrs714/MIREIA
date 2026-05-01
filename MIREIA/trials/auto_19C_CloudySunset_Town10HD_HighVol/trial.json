@@ -1,0 +1,24 @@
+{
+  "name": "auto_19C_CloudySunset_Town10HD_HighVol",
+  "route_start": [
+    -79.27944946289062,
+    137.171630859375,
+    0.0
+  ],
+  "route_end": [
+    -41.793704986572266,
+    4.535728931427002,
+    0.0
+  ],
+  "description": "Auto-generated trial from scenario 19C_CloudySunset_Town10HD_HighVol.",
+  "map_name": "Town10HD",
+  "weather": "CloudySunset",
+  "n_vehicles": 80,
+  "n_pedestrians": 50,
+  "pct_running": 15.0,
+  "pct_crossing": 10.0,
+  "safe_vehicles": false,
+  "seed": 42,
+  "sync_mode": true,
+  "fixed_delta": 0.05
+}

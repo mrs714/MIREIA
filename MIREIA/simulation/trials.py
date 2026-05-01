@@ -11,6 +11,9 @@ from typing import TYPE_CHECKING, Callable
 import carla
 import numpy as np
 
+# np.trapz was removed in NumPy 2.0 in favour of np.trapezoid; pick whichever exists.
+_np_trapezoid = getattr(np, "trapezoid", None) or np.trapz
+
 from MIREIA.config import Config
 from MIREIA.data_collection.dataset_utils import load_jsonl_records
 from MIREIA.simulation.scenarios import Scenario, get_default_ego_camera_position
@@ -68,6 +71,20 @@ class TrialDefinition:
         json_path = os.path.join(Config.PATH_TO_TRIALS, name, "trial.json")
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
+
+        # Backwards compat: trials briefly saved a `route_waypoints` list while we
+        # experimented with multi-waypoint routes. Collapse those down to start+end.
+        if "route_waypoints" in data and "route_start" not in data:
+            wps = data.pop("route_waypoints")
+            if not wps or len(wps) < 2:
+                raise ValueError(
+                    f"trial.json '{json_path}' has invalid route_waypoints (need at least 2)."
+                )
+            data["route_start"] = wps[0]
+            data["route_end"] = wps[-1]
+        else:
+            data.pop("route_waypoints", None)
+
         data["route_start"] = tuple(data["route_start"])
         data["route_end"] = tuple(data["route_end"])
         return cls(**data)
@@ -208,6 +225,7 @@ class TrialRunner:
         ego_cfg: EgoTrialConfig,
         max_steps: int = 10000,
         image_stride: int = Config.RECORD_EVERY_N_TICKS,
+        store_rgb_images: bool = True,
         store_topdown_images: bool = False,
         topdown_capture_delay_ticks: int = 2,
         topdown_resolution: tuple[int, int] = (100, 100),
@@ -220,9 +238,18 @@ class TrialRunner:
         draw_debug_skip_before_capture_ticks: int = 0,
         predictor_fn: Callable[[dict], float] | None = None,
         streaming_predictor: StreamingRiskPredictor | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+        progress_every_n_steps: int = 25,
     ) -> TrialRunSummary:
         if predictor_fn is not None and streaming_predictor is not None:
             raise ValueError("Use either predictor_fn or streaming_predictor, not both")
+        if streaming_predictor is not None and not store_rgb_images:
+            raise ValueError("streaming_predictor requires store_rgb_images=True")
+        if not store_rgb_images and (store_topdown_images or store_risk_frame_images):
+            raise ValueError(
+                "store_rgb_images=False is incompatible with store_topdown_images / store_risk_frame_images"
+            )
+        progress_every_n_steps = max(1, int(progress_every_n_steps))
 
         image_stride = max(1, int(image_stride))
         topdown_capture_delay_ticks = max(0, int(topdown_capture_delay_ticks))
@@ -320,7 +347,7 @@ class TrialRunner:
 
             for step in range(max_steps):
                 rgb_path = images_dir / f"rgb_{step:06d}.png"
-                rel_rgb = str(rgb_path.relative_to(run_path_p))
+                rel_rgb = str(rgb_path.relative_to(run_path_p)) if store_rgb_images else ""
                 topdown_path = images_dir / f"topdown_{step:06d}.png"
                 rel_topdown = str(topdown_path.relative_to(run_path_p)) if store_topdown_images else ""
                 risk_frame_path = images_dir / f"risk_{step:06d}.png"
@@ -388,7 +415,10 @@ class TrialRunner:
                     }
 
                 if step % image_stride == 0:
-                    if store_topdown_images and topdown_capture_delay_ticks == 0:
+                    if not store_rgb_images:
+                        # Image-free fast path: just tick the world and log JSONL.
+                        _tick_without_log()
+                    elif store_topdown_images and topdown_capture_delay_ticks == 0:
                         wm.sensor_manager.save_synced_frames(
                             ego_save_path=str(rgb_path),
                             map_save_path=str(topdown_path),
@@ -410,10 +440,16 @@ class TrialRunner:
                             tick_fn=_tick_with_debug_without_log,
                         )
 
-                    prediction_fields = _predict_streaming_risk()
+                    prediction_fields = _predict_streaming_risk() if store_rgb_images else {}
                     _log_current_capture(prediction_fields=prediction_fields)
                 else:
                     _tick_without_log()
+
+                if progress_callback is not None and (step % progress_every_n_steps == 0):
+                    try:
+                        progress_callback(step, max_steps)
+                    except Exception:
+                        pass
 
                 if controller.done():
                     finished = True
@@ -454,6 +490,7 @@ class TrialRunner:
         ego_configs: list[EgoTrialConfig],
         max_steps: int = 10000,
         image_stride: int = Config.RECORD_EVERY_N_TICKS,
+        store_rgb_images: bool = True,
         store_topdown_images: bool = False,
         topdown_capture_delay_ticks: int = 2,
         topdown_resolution: tuple[int, int] = (100, 100),
@@ -466,6 +503,8 @@ class TrialRunner:
         draw_debug_skip_before_capture_ticks: int = 0,
         predictor_fn: Callable[[dict], float] | None = None,
         streaming_predictor: StreamingRiskPredictor | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+        progress_every_n_steps: int = 25,
     ) -> list[TrialRunSummary]:
         summaries: list[TrialRunSummary] = []
         for ego_cfg in ego_configs:
@@ -475,6 +514,7 @@ class TrialRunner:
                     ego_cfg=ego_cfg,
                     max_steps=max_steps,
                     image_stride=image_stride,
+                    store_rgb_images=store_rgb_images,
                     store_topdown_images=store_topdown_images,
                     topdown_capture_delay_ticks=topdown_capture_delay_ticks,
                     topdown_resolution=topdown_resolution,
@@ -487,6 +527,8 @@ class TrialRunner:
                     draw_debug_skip_before_capture_ticks=draw_debug_skip_before_capture_ticks,
                     predictor_fn=predictor_fn,
                     streaming_predictor=streaming_predictor,
+                    progress_callback=progress_callback,
+                    progress_every_n_steps=progress_every_n_steps,
                 )
             )
         return summaries
@@ -520,7 +562,7 @@ class TrialRunner:
     ) -> TrialRunSummary:
         dt = float(sample_dt) if sample_dt is not None else trial.fixed_delta
         gt = np.array([float(r.get("ground_truth_risk", 0.0)) for r in records], dtype=np.float64)
-        risk_auc = float(np.trapz(gt, dx=dt)) if gt.size > 0 else 0.0
+        risk_auc = float(_np_trapezoid(gt, dx=dt)) if gt.size > 0 else 0.0
 
         positions = [
             (
@@ -549,7 +591,7 @@ class TrialRunner:
         pred_auc = None
         if pred_vals:
             pred_arr = np.array([float(v) for v in pred_vals], dtype=np.float64)
-            pred_auc = float(np.trapz(pred_arr, dx=dt))
+            pred_auc = float(_np_trapezoid(pred_arr, dx=dt))
 
         return TrialRunSummary(
             trial_name=trial.name,
