@@ -50,7 +50,8 @@ class SimpleRouteController:
     def __init__(self, target_speed: float = 10.0, sampling_resolution: float = 2.0,
                  local_planner_options: dict | None = None,
                  mode: str = "behavior_agent",
-                 behavior: str = "normal"):
+                 behavior: str = "normal",
+                 use_zone_speed_limit: bool = False):
         mode = str(mode).strip().lower()
         if mode not in {"behavior_agent", "local_planner"}:
             raise ValueError("mode must be 'behavior_agent' or 'local_planner'")
@@ -61,6 +62,7 @@ class SimpleRouteController:
             )
 
         self._target_speed = target_speed
+        self._use_zone_speed_limit = bool(use_zone_speed_limit)
         self._speed_modifier: Callable[[float, int, "SimpleRouteController"], float] | None = None
         self._tick_count = 0
         self._last_applied_target_speed = float(target_speed)
@@ -215,8 +217,35 @@ class SimpleRouteController:
             raise RuntimeError("Controller is not bound to a vehicle. Call bind_vehicle first.")
         return self._local_planner
 
+    def _get_base_target_speed(self) -> float:
+        """Return the base target speed in km/h before any modifier.
+
+        When `use_zone_speed_limit=True` and a vehicle is bound, this reads the
+        current zone speed limit from CARLA (`vehicle.get_speed_limit()`), which
+        updates as the ego passes speed-limit signs. Falls back to
+        `self._target_speed` if the vehicle is unbound or the limit is invalid.
+        """
+        if self._use_zone_speed_limit and self._vehicle is not None:
+            try:
+                limit = float(self._vehicle.get_speed_limit())
+                if limit > 0.0:
+                    return limit
+            except Exception:
+                pass
+        return float(self._target_speed)
+
+    def get_current_zone_speed_limit_kmh(self) -> float | None:
+        """Return the current CARLA zone speed limit in km/h, or None if unavailable."""
+        if self._vehicle is None:
+            return None
+        try:
+            limit = float(self._vehicle.get_speed_limit())
+            return limit if limit > 0.0 else None
+        except Exception:
+            return None
+
     def _compute_target_speed(self) -> float:
-        speed = float(self._target_speed)
+        speed = self._get_base_target_speed()
         if self._speed_modifier is not None:
             try:
                 modified = self._speed_modifier(speed, self._tick_count, self)

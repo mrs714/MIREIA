@@ -99,14 +99,20 @@ class TrialDefinition:
 
 @dataclass
 class EgoTrialConfig:
-    """Per-subtrial ego setup while world settings remain fixed."""
+    """Per-subtrial ego setup while world settings remain fixed.
+
+    `target_speed_kmh=None` (default) makes the controller use the live zone
+    speed limit (`vehicle.get_speed_limit()`) as the base target speed every
+    tick — so the ego respects per-zone speed signs. Set to a number to force
+    a fixed target speed instead.
+    """
 
     name: str
     ego_blueprint: str = "vehicle.lincoln.mkz_2020"
     ego_spawn_index: int | None = None
     ego_camera_position: tuple[float, float, float] | None = None
     use_vehicle_camera_defaults: bool = True
-    target_speed_kmh: float = 20.0
+    target_speed_kmh: float | None = None
     speed_multiplier: float = 1.0
     controller_mode: str = "behavior_agent"
     controller_behavior: str = "normal"
@@ -238,13 +244,29 @@ class TrialRunner:
         draw_debug_skip_before_capture_ticks: int = 0,
         predictor_fn: Callable[[dict], float] | None = None,
         streaming_predictor: StreamingRiskPredictor | None = None,
+        predict_step_fn: Callable[[str], float | None] | None = None,
+        risk_speed_fn: Callable[[float, float | None], float] | None = None,
         progress_callback: Callable[[int, int], None] | None = None,
         progress_every_n_steps: int = 25,
     ) -> TrialRunSummary:
-        if predictor_fn is not None and streaming_predictor is not None:
-            raise ValueError("Use either predictor_fn or streaming_predictor, not both")
+        # predictor_fn (post-hoc), streaming_predictor (StreamingRiskPredictor only),
+        # and predict_step_fn (generic per-frame callable) are mutually exclusive.
+        live_predictors = sum(
+            1 for x in (predictor_fn, streaming_predictor, predict_step_fn) if x is not None
+        )
+        if live_predictors > 1:
+            raise ValueError(
+                "Use at most one of predictor_fn, streaming_predictor, predict_step_fn"
+            )
         if streaming_predictor is not None and not store_rgb_images:
             raise ValueError("streaming_predictor requires store_rgb_images=True")
+        if predict_step_fn is not None and not store_rgb_images:
+            raise ValueError("predict_step_fn requires store_rgb_images=True")
+        if risk_speed_fn is not None and predict_step_fn is None and streaming_predictor is None:
+            raise ValueError(
+                "risk_speed_fn requires either streaming_predictor or predict_step_fn "
+                "to provide the latest predicted risk"
+            )
         if not store_rgb_images and (store_topdown_images or store_risk_frame_images):
             raise ValueError(
                 "store_rgb_images=False is incompatible with store_topdown_images / store_risk_frame_images"
@@ -259,14 +281,47 @@ class TrialRunner:
         images_dir = run_path_p / "images"
         images_dir.mkdir(parents=True, exist_ok=True)
 
+        # When target_speed_kmh is None, the controller reads the zone speed
+        # limit from CARLA each tick (vehicle.get_speed_limit()) and exposes it
+        # as the base `v` to the speed modifier / risk_speed_fn. The fallback
+        # value below is only used before the vehicle is bound or when CARLA
+        # reports an invalid (<= 0) limit.
+        use_zone = ego_cfg.target_speed_kmh is None
+        fallback_target_speed = 30.0 if use_zone else float(ego_cfg.target_speed_kmh)
         controller = SimpleRouteController(
-            target_speed=ego_cfg.target_speed_kmh,
+            target_speed=fallback_target_speed,
+            use_zone_speed_limit=use_zone,
             sampling_resolution=2.0,
             mode=ego_cfg.controller_mode,
             behavior=ego_cfg.controller_behavior,
         )
 
-        if ego_cfg.speed_multiplier != 1.0:
+        # Mutable cell holding the latest predicted risk so the risk-aware speed
+        # modifier (which fires every tick) can read the most recent prediction
+        # produced by `streaming_predictor` or `predict_step_fn` (which fire on
+        # captured frames only, every `image_stride` ticks).
+        latest_predicted_risk: dict[str, float | None] = {"value": None}
+
+        if risk_speed_fn is not None:
+            def _risk_aware_modifier(base_speed, tick_idx, _c):
+                # `base_speed` is the live zone speed limit (km/h) when the
+                # controller runs in zone-aware mode, or the fixed fallback
+                # otherwise. The user's risk_speed_fn(v, r) receives that same
+                # `v` so the lambda is always written against the actual
+                # zone-aware target speed.
+                r = latest_predicted_risk["value"]
+                try:
+                    out = risk_speed_fn(base_speed, r)
+                except Exception:
+                    return base_speed
+                if out is None:
+                    out = base_speed
+                # Apply the static speed_multiplier on top so users can stack
+                # a constant scaling with the dynamic risk-aware function.
+                return float(out) * float(ego_cfg.speed_multiplier)
+
+            controller.set_speed_modifier(_risk_aware_modifier)
+        elif ego_cfg.speed_multiplier != 1.0:
             controller.set_speed_modifier(lambda base_speed, tick_idx, _c: ego_cfg.speed_multiplier * base_speed)
 
         wm = WorldManager(sync_mode=trial.sync_mode, fixed_delta=trial.fixed_delta, verbose=self.verbose)
@@ -403,16 +458,32 @@ class TrialRunner:
                     _tick_without_log()
 
                 def _predict_streaming_risk() -> dict:
-                    if streaming_predictor is None:
-                        return {}
-
-                    prediction = streaming_predictor.predict_from_image_path(str(rgb_path))
-                    return {
-                        "predicted_risk": prediction.latest_risk,
-                        "predicted_risk_window": prediction.risk_window,
-                        "predicted_risk_ready": prediction.ready,
-                        "predicted_risk_buffer_size": prediction.buffer_size,
-                    }
+                    if streaming_predictor is not None:
+                        prediction = streaming_predictor.predict_from_image_path(str(rgb_path))
+                        latest_predicted_risk["value"] = (
+                            float(prediction.latest_risk)
+                            if prediction.ready and prediction.latest_risk is not None
+                            else None
+                        )
+                        return {
+                            "predicted_risk": prediction.latest_risk,
+                            "predicted_risk_window": prediction.risk_window,
+                            "predicted_risk_ready": prediction.ready,
+                            "predicted_risk_buffer_size": prediction.buffer_size,
+                        }
+                    if predict_step_fn is not None:
+                        try:
+                            r = predict_step_fn(str(rgb_path))
+                        except Exception as exc:  # don't kill the run on a bad predict_fn
+                            r = None
+                            extra = {"predicted_risk_error": f"{type(exc).__name__}: {exc}"}
+                        else:
+                            extra = {}
+                        latest_predicted_risk["value"] = (
+                            float(r) if r is not None else None
+                        )
+                        return {"predicted_risk": r, **extra}
+                    return {}
 
                 if step % image_stride == 0:
                     if not store_rgb_images:
@@ -503,6 +574,8 @@ class TrialRunner:
         draw_debug_skip_before_capture_ticks: int = 0,
         predictor_fn: Callable[[dict], float] | None = None,
         streaming_predictor: StreamingRiskPredictor | None = None,
+        predict_step_fn: Callable[[str], float | None] | None = None,
+        risk_speed_fn: Callable[[float, float | None], float] | None = None,
         progress_callback: Callable[[int, int], None] | None = None,
         progress_every_n_steps: int = 25,
     ) -> list[TrialRunSummary]:
@@ -527,6 +600,8 @@ class TrialRunner:
                     draw_debug_skip_before_capture_ticks=draw_debug_skip_before_capture_ticks,
                     predictor_fn=predictor_fn,
                     streaming_predictor=streaming_predictor,
+                    predict_step_fn=predict_step_fn,
+                    risk_speed_fn=risk_speed_fn,
                     progress_callback=progress_callback,
                     progress_every_n_steps=progress_every_n_steps,
                 )
