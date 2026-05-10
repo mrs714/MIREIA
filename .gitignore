@@ -16,6 +16,8 @@
 !composed_inference_analysis.ipynb
 !trial_builder.ipynb
 !trial_batch_runner.ipynb
+!trial_slow_batch_runner.ipynb
+!trial_models_batch_runner.ipynb
 
 # 4. Allow a specific folder
 # Note: You must allow the folder itself AND everything inside it
