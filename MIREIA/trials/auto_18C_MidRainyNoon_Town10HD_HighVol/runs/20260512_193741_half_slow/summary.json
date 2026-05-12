@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_18C_MidRainyNoon_Town10HD_HighVol",
+  "subtrial_name": "half_slow",
+  "run_id": "20260512_193741_half_slow",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_18C_MidRainyNoon_Town10HD_HighVol\\runs\\20260512_193741_half_slow",
+  "num_frames": 1200,
+  "duration_s": 239.02920150756836,
+  "traveled_m": 120.8741473671675,
+  "risk_auc": 767.8458702520445,
+  "risk_distance_integral": 1361.1573866210222,
+  "risk_per_meter": 11.260947160904212,
+  "predicted_risk_auc": null,
+  "finished": false,
+  "metadata": {
+    "map_name": "Town10HD",
+    "weather": "MidRainyNoon",
+    "route_start": [
+      -28.517200469970703,
+      130.03573608398438,
+      0.0
+    ],
+    "route_end": [
+      90.62525177001953,
+      28.740413665771484,
+      0.0
+    ]
+  }
+}

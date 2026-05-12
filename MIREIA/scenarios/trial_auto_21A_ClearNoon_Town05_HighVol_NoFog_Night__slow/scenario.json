@@ -1,0 +1,40 @@
+{
+    "name": "trial_auto_21A_ClearNoon_Town05_HighVol_NoFog_Night__slow",
+    "description": "Auto-generated trial from scenario 21A_ClearNoon_Town05_HighVol_NoFog_Night.",
+    "map_name": "Town05",
+    "weather": {
+        "cloudiness": 5.0,
+        "precipitation": 0.0,
+        "precipitation_deposits": 0.0,
+        "wind_intensity": 10.0,
+        "sun_azimuth_angle": -1.0,
+        "sun_altitude_angle": -90.0,
+        "fog_density": 2.0,
+        "fog_distance": 0.75,
+        "wetness": 0.0,
+        "fog_falloff": 0.10000000149011612,
+        "scattering_intensity": 1.0,
+        "mie_scattering_scale": 0.029999999329447746,
+        "rayleigh_scattering_scale": 0.03310000151395798,
+        "dust_storm": 0.0
+    },
+    "ego_blueprint": "vehicle.lincoln.mkz_2020",
+    "ego_camera_position": [
+        0.8,
+        0.0,
+        1.3
+    ],
+    "ego_spawn_index": null,
+    "ego_spawn_point": [
+        -129.66493225097656,
+        191.12449645996094,
+        0.0
+    ],
+    "ego_autopilot": false,
+    "n_vehicles": 80,
+    "n_pedestrians": 50,
+    "pct_running": 15.0,
+    "pct_crossing": 10.0,
+    "safe_vehicles": false,
+    "seed": 42
+}

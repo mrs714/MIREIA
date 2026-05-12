@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_17C_WetNoon_Town10HD_HighVol",
+  "subtrial_name": "very_slow",
+  "run_id": "20260512_143751_very_slow",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_17C_WetNoon_Town10HD_HighVol\\runs\\20260512_143751_very_slow",
+  "num_frames": 274,
+  "duration_s": 58.367488861083984,
+  "traveled_m": 160.35966729627174,
+  "risk_auc": 154.23146403202662,
+  "risk_distance_integral": 453.89361753780406,
+  "risk_per_meter": 2.8304724323181283,
+  "predicted_risk_auc": null,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town10HD",
+    "weather": "WetNoon",
+    "route_start": [
+      -107.56678771972656,
+      78.57760620117188,
+      0.0
+    ],
+    "route_end": [
+      -59.809104919433594,
+      -57.43671798706055,
+      0.0
+    ]
+  }
+}

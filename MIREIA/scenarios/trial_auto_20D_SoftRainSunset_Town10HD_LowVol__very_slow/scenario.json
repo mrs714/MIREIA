@@ -1,0 +1,25 @@
+{
+    "name": "trial_auto_20D_SoftRainSunset_Town10HD_LowVol__very_slow",
+    "description": "Auto-generated trial from scenario 20D_SoftRainSunset_Town10HD_LowVol.",
+    "map_name": "Town10HD",
+    "weather": "SoftRainSunset",
+    "ego_blueprint": "vehicle.lincoln.mkz_2020",
+    "ego_camera_position": [
+        0.8,
+        0.0,
+        1.3
+    ],
+    "ego_spawn_index": null,
+    "ego_spawn_point": [
+        88.77238464355469,
+        -52.73203659057617,
+        0.0
+    ],
+    "ego_autopilot": false,
+    "n_vehicles": 40,
+    "n_pedestrians": 20,
+    "pct_running": 0.0,
+    "pct_crossing": 5.0,
+    "safe_vehicles": true,
+    "seed": 42
+}

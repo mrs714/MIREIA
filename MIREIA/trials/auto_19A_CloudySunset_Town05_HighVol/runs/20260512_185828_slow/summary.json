@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_19A_CloudySunset_Town05_HighVol",
+  "subtrial_name": "slow",
+  "run_id": "20260512_185828_slow",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_19A_CloudySunset_Town05_HighVol\\runs\\20260512_185828_slow",
+  "num_frames": 203,
+  "duration_s": 33.28412055969238,
+  "traveled_m": 152.8066690541398,
+  "risk_auc": 141.49576075653584,
+  "risk_distance_integral": 507.33061243433815,
+  "risk_per_meter": 3.320081614072679,
+  "predicted_risk_auc": null,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town05",
+    "weather": "CloudySunset",
+    "route_start": [
+      -188.0891876220703,
+      -65.58473205566406,
+      0.0
+    ],
+    "route_end": [
+      -119.82806396484375,
+      -89.77881622314453,
+      0.0
+    ]
+  }
+}

@@ -246,6 +246,7 @@ class TrialRunner:
         streaming_predictor: StreamingRiskPredictor | None = None,
         predict_step_fn: Callable[[str], float | None] | None = None,
         risk_speed_fn: Callable[[float, float | None], float] | None = None,
+        use_ground_truth_risk: bool = False,
         progress_callback: Callable[[int, int], None] | None = None,
         progress_every_n_steps: int = 25,
     ) -> TrialRunSummary:
@@ -262,10 +263,19 @@ class TrialRunner:
             raise ValueError("streaming_predictor requires store_rgb_images=True")
         if predict_step_fn is not None and not store_rgb_images:
             raise ValueError("predict_step_fn requires store_rgb_images=True")
-        if risk_speed_fn is not None and predict_step_fn is None and streaming_predictor is None:
+        if (
+            risk_speed_fn is not None
+            and predict_step_fn is None
+            and streaming_predictor is None
+            and not use_ground_truth_risk
+        ):
             raise ValueError(
-                "risk_speed_fn requires either streaming_predictor or predict_step_fn "
-                "to provide the latest predicted risk"
+                "risk_speed_fn requires either streaming_predictor, predict_step_fn, "
+                "or use_ground_truth_risk=True to provide the risk value"
+            )
+        if use_ground_truth_risk and (streaming_predictor is not None or predict_step_fn is not None):
+            raise ValueError(
+                "use_ground_truth_risk=True is incompatible with streaming_predictor / predict_step_fn"
             )
         if not store_rgb_images and (store_topdown_images or store_risk_frame_images):
             raise ValueError(
@@ -302,23 +312,45 @@ class TrialRunner:
         # captured frames only, every `image_stride` ticks).
         latest_predicted_risk: dict[str, float | None] = {"value": None}
 
+        # WorldManager is created below; the GT-risk speed modifier needs to read
+        # `wm.get_risk()` each tick, so we stash it in a holder populated after
+        # `wm` is constructed.
+        wm_holder: dict[str, "WorldManager | None"] = {"wm": None}
+
         if risk_speed_fn is not None:
-            def _risk_aware_modifier(base_speed, tick_idx, _c):
-                # `base_speed` is the live zone speed limit (km/h) when the
-                # controller runs in zone-aware mode, or the fixed fallback
-                # otherwise. The user's risk_speed_fn(v, r) receives that same
-                # `v` so the lambda is always written against the actual
-                # zone-aware target speed.
-                r = latest_predicted_risk["value"]
-                try:
-                    out = risk_speed_fn(base_speed, r)
-                except Exception:
-                    return base_speed
-                if out is None:
-                    out = base_speed
-                # Apply the static speed_multiplier on top so users can stack
-                # a constant scaling with the dynamic risk-aware function.
-                return float(out) * float(ego_cfg.speed_multiplier)
+            if use_ground_truth_risk:
+                def _risk_aware_modifier(base_speed, tick_idx, _c):
+                    wm_ref = wm_holder["wm"]
+                    if wm_ref is None:
+                        return base_speed
+                    try:
+                        r: float | None = float(wm_ref.get_risk())
+                    except Exception:
+                        r = None
+                    try:
+                        out = risk_speed_fn(base_speed, r)
+                    except Exception:
+                        return base_speed
+                    if out is None:
+                        out = base_speed
+                    return float(out) * float(ego_cfg.speed_multiplier)
+            else:
+                def _risk_aware_modifier(base_speed, tick_idx, _c):
+                    # `base_speed` is the live zone speed limit (km/h) when the
+                    # controller runs in zone-aware mode, or the fixed fallback
+                    # otherwise. The user's risk_speed_fn(v, r) receives that same
+                    # `v` so the lambda is always written against the actual
+                    # zone-aware target speed.
+                    r = latest_predicted_risk["value"]
+                    try:
+                        out = risk_speed_fn(base_speed, r)
+                    except Exception:
+                        return base_speed
+                    if out is None:
+                        out = base_speed
+                    # Apply the static speed_multiplier on top so users can stack
+                    # a constant scaling with the dynamic risk-aware function.
+                    return float(out) * float(ego_cfg.speed_multiplier)
 
             controller.set_speed_modifier(_risk_aware_modifier)
         elif ego_cfg.speed_multiplier != 1.0:
@@ -326,6 +358,7 @@ class TrialRunner:
 
         wm = WorldManager(sync_mode=trial.sync_mode, fixed_delta=trial.fixed_delta, verbose=self.verbose)
         wm.set_ego_controller(controller)
+        wm_holder["wm"] = wm
 
         camera_position = ego_cfg.ego_camera_position
         if camera_position is None and ego_cfg.use_vehicle_camera_defaults:
@@ -576,6 +609,7 @@ class TrialRunner:
         streaming_predictor: StreamingRiskPredictor | None = None,
         predict_step_fn: Callable[[str], float | None] | None = None,
         risk_speed_fn: Callable[[float, float | None], float] | None = None,
+        use_ground_truth_risk: bool = False,
         progress_callback: Callable[[int, int], None] | None = None,
         progress_every_n_steps: int = 25,
     ) -> list[TrialRunSummary]:
@@ -602,6 +636,7 @@ class TrialRunner:
                     streaming_predictor=streaming_predictor,
                     predict_step_fn=predict_step_fn,
                     risk_speed_fn=risk_speed_fn,
+                    use_ground_truth_risk=use_ground_truth_risk,
                     progress_callback=progress_callback,
                     progress_every_n_steps=progress_every_n_steps,
                 )

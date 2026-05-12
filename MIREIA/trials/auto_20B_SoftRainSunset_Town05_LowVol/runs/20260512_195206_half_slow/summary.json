@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_20B_SoftRainSunset_Town05_LowVol",
+  "subtrial_name": "half_slow",
+  "run_id": "20260512_195206_half_slow",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_20B_SoftRainSunset_Town05_LowVol\\runs\\20260512_195206_half_slow",
+  "num_frames": 963,
+  "duration_s": 99.8127121925354,
+  "traveled_m": 997.6831699443093,
+  "risk_auc": 609.1623793037618,
+  "risk_distance_integral": 2751.5102008428057,
+  "risk_per_meter": 2.757899785957495,
+  "predicted_risk_auc": null,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town05",
+    "weather": "SoftRainSunset",
+    "route_start": [
+      151.58876037597656,
+      74.27569580078125,
+      0.0
+    ],
+    "route_end": [
+      114.72605895996094,
+      190.40164184570312,
+      0.0
+    ]
+  }
+}

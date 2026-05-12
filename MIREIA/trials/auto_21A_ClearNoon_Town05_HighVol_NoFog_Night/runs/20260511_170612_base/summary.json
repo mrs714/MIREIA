@@ -1,0 +1,43 @@
+{
+  "trial_name": "auto_21A_ClearNoon_Town05_HighVol_NoFog_Night",
+  "subtrial_name": "base",
+  "run_id": "20260511_170612_base",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_21A_ClearNoon_Town05_HighVol_NoFog_Night\\runs\\20260511_170612_base",
+  "num_frames": 881,
+  "duration_s": 517.3607451915741,
+  "traveled_m": 1105.515526778228,
+  "risk_auc": 645.7654358716954,
+  "risk_distance_integral": 2562.3785005506315,
+  "risk_per_meter": 2.3178132178912922,
+  "predicted_risk_auc": null,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town05",
+    "weather": {
+      "cloudiness": 5.0,
+      "precipitation": 0.0,
+      "precipitation_deposits": 0.0,
+      "wind_intensity": 10.0,
+      "sun_azimuth_angle": -1.0,
+      "sun_altitude_angle": -90.0,
+      "fog_density": 2.0,
+      "fog_distance": 0.75,
+      "wetness": 0.0,
+      "fog_falloff": 0.10000000149011612,
+      "scattering_intensity": 1.0,
+      "mie_scattering_scale": 0.029999999329447746,
+      "rayleigh_scattering_scale": 0.03310000151395798,
+      "dust_storm": 0.0
+    },
+    "route_start": [
+      -129.66493225097656,
+      191.12449645996094,
+      0.0
+    ],
+    "route_end": [
+      -268.6591491699219,
+      -17.15737533569336,
+      0.0
+    ]
+  }
+}
