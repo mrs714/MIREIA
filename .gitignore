@@ -18,6 +18,9 @@
 !trial_batch_runner.ipynb
 !trial_slow_batch_runner.ipynb
 !trial_models_batch_runner.ipynb
+!trial_function_batch_runner.ipynb
+!trial_comparison.ipynb
+!trial_analysis.ipynb
 
 # 4. Allow a specific folder
 # Note: You must allow the folder itself AND everything inside it
