@@ -337,10 +337,19 @@ class DatasetVideoComposer:
     - bottom-left: risk map
     """
 
+    # Colors used (in order) for calculated-risk overlay curves in graph mode.
+    _CALC_COLOR_PALETTE: tuple[tuple[int, int, int], ...] = (
+        (255, 170, 0),   # orange
+        (220, 60, 60),   # red
+        (160, 80, 220),  # purple
+        (60, 160, 255),  # blue
+    )
+
     def __init__(self, jsonl_path: str, fps: int = Config.RECORDING_FPS, background=(0, 0, 0),
                  risk_tile_mode: str = "number",
                  calculated_risk_key: str | None = None,
                  calculated_risk_fn: Callable[[dict], float] | None = None,
+                 calculated_risk_keys: list[str] | None = None,
                  risk_graph_ylim: tuple[float, float] | None = None):
         self.jsonl_path = Path(jsonl_path)
         self.dataset_dir = self.jsonl_path.parent
@@ -349,10 +358,12 @@ class DatasetVideoComposer:
         self.risk_tile_mode = risk_tile_mode
         self.calculated_risk_key = calculated_risk_key
         self.calculated_risk_fn = calculated_risk_fn
+        self.calculated_risk_keys = list(calculated_risk_keys) if calculated_risk_keys else None
         self.risk_graph_ylim = risk_graph_ylim
         self._distance_axis: np.ndarray | None = None
         self._true_risk_series: np.ndarray | None = None
-        self._calculated_risk_series: np.ndarray | None = None
+        # (label, rgb_color, per-frame values) for every calculated curve.
+        self._calculated_curves: list[tuple[str, tuple[int, int, int], np.ndarray]] = []
 
     def build_video(self, output_name: str = "dataset_video.mp4") -> str:
         """
@@ -447,7 +458,6 @@ class DatasetVideoComposer:
     def _prepare_risk_graph_cache(self, records: list[dict]) -> None:
         distances: list[float] = []
         true_risks: list[float] = []
-        calc_risks: list[float] = []
 
         prev_x = None
         prev_y = None
@@ -468,20 +478,36 @@ class DatasetVideoComposer:
             distances.append(total_d)
             true_risks.append(self._safe_float(rec.get("ground_truth_risk", 0.0), default=0.0))
 
-            calc_val = None
-            if self.calculated_risk_fn is not None:
-                try:
-                    calc_val = float(self.calculated_risk_fn(rec))
-                except Exception:
-                    calc_val = None
-            elif self.calculated_risk_key:
-                calc_val = rec.get(self.calculated_risk_key, None)
-
-            calc_risks.append(np.nan if calc_val is None else self._safe_float(calc_val))
-
         self._distance_axis = np.array(distances, dtype=np.float64)
         self._true_risk_series = np.array(true_risks, dtype=np.float64)
-        self._calculated_risk_series = np.array(calc_risks, dtype=np.float64)
+
+        # Build the list of calculated-risk overlay curves. Precedence:
+        # 1) calculated_risk_fn (single dynamic function — legacy behavior).
+        # 2) calculated_risk_keys (multiple JSONL columns overlaid).
+        # 3) calculated_risk_key (single JSONL column — legacy behavior).
+        curves: list[tuple[str, tuple[int, int, int], np.ndarray]] = []
+        if self.calculated_risk_fn is not None:
+            vals: list[float] = []
+            for rec in records:
+                try:
+                    vals.append(float(self.calculated_risk_fn(rec)))
+                except Exception:
+                    vals.append(float("nan"))
+            curves.append(("calculated", self._CALC_COLOR_PALETTE[0], np.array(vals, dtype=np.float64)))
+        else:
+            keys = self.calculated_risk_keys
+            if not keys and self.calculated_risk_key:
+                keys = [self.calculated_risk_key]
+            if keys:
+                for idx, key in enumerate(keys):
+                    vals = [self._safe_float(rec.get(key, float("nan")), default=float("nan")) for rec in records]
+                    arr = np.array(vals, dtype=np.float64)
+                    if not np.isfinite(arr).any():
+                        continue
+                    color = self._CALC_COLOR_PALETTE[idx % len(self._CALC_COLOR_PALETTE)]
+                    curves.append((str(key), color, arr))
+
+        self._calculated_curves = curves
 
     @staticmethod
     def _draw_curve(draw: ImageDraw.ImageDraw, points: list[tuple[float, float]],
@@ -515,7 +541,10 @@ class DatasetVideoComposer:
 
         d = self._distance_axis[:frame_idx + 1]
         r_true = self._true_risk_series[:frame_idx + 1]
-        r_calc = self._calculated_risk_series[:frame_idx + 1] if self._calculated_risk_series is not None else None
+        calc_slices: list[tuple[str, tuple[int, int, int], np.ndarray]] = [
+            (label, color, series[:frame_idx + 1])
+            for label, color, series in self._calculated_curves
+        ]
 
         x_max = max(1e-6, float(d[-1]))
         if self.risk_graph_ylim is not None:
@@ -523,8 +552,9 @@ class DatasetVideoComposer:
             y_max = max(y_min + 1e-6, float(self.risk_graph_ylim[1]))
         else:
             values = [float(np.nanmax(r_true)) if r_true.size else 0.0]
-            if r_calc is not None and np.any(np.isfinite(r_calc)):
-                values.append(float(np.nanmax(r_calc)))
+            for _, _, slice_arr in calc_slices:
+                if slice_arr.size and np.any(np.isfinite(slice_arr)):
+                    values.append(float(np.nanmax(slice_arr)))
             y_min = 0.0
             y_max = max(1.0, max(values) * 1.1)
 
@@ -537,12 +567,14 @@ class DatasetVideoComposer:
         true_points = [to_xy(float(dd), float(rr)) for dd, rr in zip(d, r_true)]
         self._draw_curve(draw, true_points, color=(0, 220, 0), width=3)
 
-        if r_calc is not None and np.any(np.isfinite(r_calc)):
+        for _, color, slice_arr in calc_slices:
+            if not (slice_arr.size and np.any(np.isfinite(slice_arr))):
+                continue
             calc_points: list[tuple[float, float]] = []
-            for dd, rr in zip(d, r_calc):
+            for dd, rr in zip(d, slice_arr):
                 if np.isfinite(rr):
                     calc_points.append(to_xy(float(dd), float(rr)))
-            self._draw_curve(draw, calc_points, color=(255, 170, 0), width=2)
+            self._draw_curve(draw, calc_points, color=color, width=2)
 
         cur_x, cur_y = true_points[-1]
         marker_r = max(2, width // 140)
@@ -568,17 +600,20 @@ class DatasetVideoComposer:
         draw.text((2, y0 - 2), y_top, fill=(190, 190, 190), font=font_small)
         draw.text((2, y1 - 10), y_bot, fill=(190, 190, 190), font=font_small)
 
+        # Legend: true curve + one entry per calculated curve, laid out left-to-right.
         legend_y = y0 + 4
-        draw.line([(x0 + 6, legend_y + 6), (x0 + 26, legend_y + 6)], fill=(0, 220, 0), width=3)
-        true_label_x = x0 + 30
-        true_label = "true"
-        draw.text((true_label_x, legend_y), true_label, fill=(220, 220, 220), font=font_small)
-        if r_calc is not None and np.any(np.isfinite(r_calc)):
-            true_bbox = draw.textbbox((0, 0), true_label, font=font_small)
-            legend_gap = 24
-            calc_line_x0 = true_label_x + (true_bbox[2] - true_bbox[0]) + legend_gap
-            draw.line([(calc_line_x0, legend_y + 6), (calc_line_x0 + 20, legend_y + 6)], fill=(255, 170, 0), width=2)
-            draw.text((calc_line_x0 + 24, legend_y), "calculated", fill=(220, 220, 220), font=font_small)
+        legend_gap = 18
+        legend_x = x0 + 6
+        entries: list[tuple[str, tuple[int, int, int], int]] = [("true", (0, 220, 0), 3)]
+        for label, color, slice_arr in calc_slices:
+            if slice_arr.size and np.any(np.isfinite(slice_arr)):
+                entries.append((label, color, 2))
+
+        for label, color, line_w in entries:
+            draw.line([(legend_x, legend_y + 6), (legend_x + 20, legend_y + 6)], fill=color, width=line_w)
+            draw.text((legend_x + 24, legend_y), label, fill=(220, 220, 220), font=font_small)
+            bbox = draw.textbbox((0, 0), label, font=font_small)
+            legend_x += 24 + (bbox[2] - bbox[0]) + legend_gap
 
         return tile
 
@@ -1237,6 +1272,7 @@ def compose_trial_dataset_video(jsonl_path: str,
                                 fps: int = Config.RECORDING_FPS,
                                 calculated_risk_key: str | None = "predicted_risk",
                                 calculated_risk_fn: Callable[[dict], float] | None = None,
+                                calculated_risk_keys: list[str] | None = None,
                                 risk_graph_ylim: tuple[float, float] | None = None) -> str:
     """
     Build a 2x2 trial video from a trial dataset JSONL using a risk-vs-distance plot
@@ -1247,7 +1283,10 @@ def compose_trial_dataset_video(jsonl_path: str,
     :param fps: Video framerate.
     :param calculated_risk_key: Optional record key for overlay curve (e.g. 'predicted_risk').
     :param calculated_risk_fn: Optional function that computes a risk value from each record.
-        If provided, it takes precedence over calculated_risk_key.
+        If provided, it takes precedence over calculated_risk_keys / calculated_risk_key.
+    :param calculated_risk_keys: Optional list of JSONL columns to overlay as separate
+        curves (e.g. ['predicted_risk_e2e', 'predicted_risk_composed']). Takes precedence
+        over calculated_risk_key when both are set.
     :param risk_graph_ylim: Optional fixed y-limits for the risk graph as (ymin, ymax).
     :returns: Full path to the created video.
     """
@@ -1257,6 +1296,7 @@ def compose_trial_dataset_video(jsonl_path: str,
         risk_tile_mode="graph",
         calculated_risk_key=calculated_risk_key,
         calculated_risk_fn=calculated_risk_fn,
+        calculated_risk_keys=calculated_risk_keys,
         risk_graph_ylim=risk_graph_ylim,
     )
     return composer.build_video(output_name=output_name)
