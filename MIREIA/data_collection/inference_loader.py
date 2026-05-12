@@ -1,29 +1,38 @@
 from __future__ import annotations
 
 import os
-from typing import Callable
+from typing import Callable, Sequence
 
 import torch
-from PIL import Image
 
 from MIREIA.data_collection.dataset_utils import (
     DEFAULT_IMAGE_SIZE,
     build_default_transform,
+    load_rgb_image,
+    normalize_crop_bbox_xyxy,
     resolve_image_path,
 )
 
 
 class InferenceFrameLoader:
-    """Load single RGB frames for online or offline model inference."""
+    """Load single RGB frames for online or offline model inference.
+
+    Pass `manual_crop_bbox` (xyxy) to crop every loaded frame before the
+    resize/normalize transform — same path used by training datasets so trial
+    inference matches the preprocessing the model was trained on (e.g. cutting
+    the dashboard out of the dashcam frame).
+    """
 
     def __init__(
         self,
         image_size: tuple[int, int] = DEFAULT_IMAGE_SIZE,
         transform: Callable | None = None,
         normalize_paths: bool = True,
+        manual_crop_bbox: Sequence[float] | None = None,
     ):
         self.normalize_paths = normalize_paths
         self.transform = transform or build_default_transform(image_size)
+        self.manual_crop_bbox = normalize_crop_bbox_xyxy(manual_crop_bbox)
 
     def __call__(self, image_path: str) -> torch.Tensor:
         return self.load_from_path(image_path)
@@ -32,9 +41,7 @@ class InferenceFrameLoader:
         full_path = os.path.normpath(image_path) if self.normalize_paths else image_path
         if not os.path.isfile(full_path):
             raise FileNotFoundError(f"Inference image not found: {full_path}")
-
-        with Image.open(full_path) as image:
-            return self.transform(image.convert("RGB"))
+        return load_rgb_image(full_path, self.transform, crop_bbox_xyxy=self.manual_crop_bbox)
 
     def resolve_record_image_path(
         self,

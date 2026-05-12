@@ -62,6 +62,7 @@ class StreamingRiskPredictor:
         temporal_config: TemporalInferenceConfig | None = None,
         frame_loader: InferenceFrameLoader | None = None,
         device: torch.device | str | None = None,
+        manual_crop_bbox: "Sequence[float] | None" = None,
     ):
         self.temporal_config = temporal_config or TemporalInferenceConfig()
         self.device = self._resolve_device(device)
@@ -72,7 +73,8 @@ class StreamingRiskPredictor:
             param.requires_grad_(False)
 
         self.frame_loader = frame_loader or InferenceFrameLoader(
-            image_size=self.model.config.input_size
+            image_size=self.model.config.input_size,
+            manual_crop_bbox=manual_crop_bbox,
         )
         self._feature_buffer: deque[torch.Tensor] = deque(maxlen=self.temporal_config.sequence_len)
 
@@ -91,6 +93,7 @@ class StreamingRiskPredictor:
         frame_loader: InferenceFrameLoader | None = None,
         device: torch.device | str | None = None,
         strict: bool = True,
+        manual_crop_bbox: "Sequence[float] | None" = None,
     ) -> "StreamingRiskPredictor":
         resolved_device = cls._resolve_device(device)
         model = Seq2SeqRiskPredictor(config=model_config)
@@ -117,6 +120,7 @@ class StreamingRiskPredictor:
             temporal_config=temporal_config,
             frame_loader=frame_loader,
             device=resolved_device,
+            manual_crop_bbox=manual_crop_bbox,
         )
 
     def reset(self) -> None:
@@ -355,6 +359,7 @@ def create_streaming_predictor(
     frame_loader: InferenceFrameLoader | None = None,
     device: torch.device | str | None = None,
     strict: bool = True,
+    manual_crop_bbox: "Sequence[float] | None" = None,
 ) -> StreamingRiskPredictor:
     """Convenience factory for online runtime inference."""
 
@@ -369,6 +374,7 @@ def create_streaming_predictor(
         frame_loader=frame_loader,
         device=device,
         strict=strict,
+        manual_crop_bbox=manual_crop_bbox,
     )
 
 

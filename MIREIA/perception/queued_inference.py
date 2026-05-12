@@ -4,13 +4,17 @@ import os
 from collections import OrderedDict, deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 import numpy as np
 import torch
 from PIL import Image
 
 from MIREIA.config import Config
+from MIREIA.data_collection.dataset_utils import (
+    _clip_bbox_to_image,
+    normalize_crop_bbox_xyxy,
+)
 from MIREIA.data_collection.inference_loader import InferenceFrameLoader
 from MIREIA.perception.bdu_gru_model import (
     BDUGRUModelConfig,
@@ -133,6 +137,7 @@ class QueuedE2ERiskInference:
         frame_loader: InferenceFrameLoader | None = None,
         device: torch.device | str | None = None,
         max_feature_cache_entries: int | None = 4096,
+        manual_crop_bbox: Sequence[float] | None = None,
     ):
         self.temporal_config = temporal_config or QueuedTemporalConfig()
         self.device = _resolve_device(device)
@@ -142,8 +147,11 @@ class QueuedE2ERiskInference:
         for p in self.model.parameters():
             p.requires_grad_(False)
 
+        # If a frame_loader was passed, honor it as-is; otherwise build one with
+        # the requested manual crop so trial inference matches training preprocess.
         self.frame_loader = frame_loader or InferenceFrameLoader(
-            image_size=self.model.config.input_size
+            image_size=self.model.config.input_size,
+            manual_crop_bbox=manual_crop_bbox,
         )
 
         self._feature_cache = _LRUCache(max_entries=max_feature_cache_entries)
@@ -160,6 +168,7 @@ class QueuedE2ERiskInference:
         device: torch.device | str | None = None,
         strict: bool = True,
         max_feature_cache_entries: int | None = 4096,
+        manual_crop_bbox: Sequence[float] | None = None,
     ) -> "QueuedE2ERiskInference":
         resolved_device = _resolve_device(device)
         model = Seq2SeqRiskPredictor(config=model_config)
@@ -185,6 +194,7 @@ class QueuedE2ERiskInference:
             frame_loader=frame_loader,
             device=resolved_device,
             max_feature_cache_entries=max_feature_cache_entries,
+            manual_crop_bbox=manual_crop_bbox,
         )
 
     def reset_queue(self) -> None:
@@ -290,6 +300,7 @@ class QueuedComposedBDUGRURiskInference:
         max_pair_feature_cache_entries: int | None = 8192,
         max_source_cache_entries: int | None = 4096,
         max_frame_perception_cache_entries: int | None = 512,
+        manual_crop_bbox: Sequence[float] | None = None,
     ):
         self.temporal_config = temporal_config or QueuedTemporalConfig()
         self.device = _resolve_device(device)
@@ -305,6 +316,7 @@ class QueuedComposedBDUGRURiskInference:
         self.environment_predictor = environment_predictor
         self.road_segmentation = road_segmentation
         self._ego_motion_estimator = EgoMotionEstimator(crop_ratio=0.9)
+        self.manual_crop_bbox = normalize_crop_bbox_xyxy(manual_crop_bbox)
 
         self._source_cache = _LRUCache(max_entries=max_source_cache_entries)
         self._frame_perception_cache = _LRUCache(max_entries=max_frame_perception_cache_entries)
@@ -332,6 +344,7 @@ class QueuedComposedBDUGRURiskInference:
         max_pair_feature_cache_entries: int | None = 8192,
         max_source_cache_entries: int | None = 4096,
         max_frame_perception_cache_entries: int | None = 512,
+        manual_crop_bbox: Sequence[float] | None = None,
     ) -> "QueuedComposedBDUGRURiskInference":
         resolved_device = _resolve_device(device)
         payload = torch.load(checkpoint_path, map_location=resolved_device)
@@ -376,6 +389,7 @@ class QueuedComposedBDUGRURiskInference:
             max_pair_feature_cache_entries=max_pair_feature_cache_entries,
             max_source_cache_entries=max_source_cache_entries,
             max_frame_perception_cache_entries=max_frame_perception_cache_entries,
+            manual_crop_bbox=manual_crop_bbox,
         )
 
     def reset_queue(self) -> None:
@@ -477,10 +491,12 @@ class QueuedComposedBDUGRURiskInference:
             if not image_path.is_file():
                 raise FileNotFoundError(f"Image not found: {image_path}")
             with Image.open(image_path) as image:
-                return np.asarray(image.convert("RGB"), dtype=np.uint8)
+                rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+            return self._apply_manual_crop(rgb)
 
         if isinstance(source, Image.Image):
-            return np.asarray(source.convert("RGB"), dtype=np.uint8)
+            rgb = np.asarray(source.convert("RGB"), dtype=np.uint8)
+            return self._apply_manual_crop(rgb)
 
         arr = np.asarray(source)
         if arr.ndim == 2:
@@ -495,7 +511,19 @@ class QueuedComposedBDUGRURiskInference:
         if rgb.dtype != np.uint8:
             rgb = np.clip(rgb, 0, 255).astype(np.uint8)
 
-        return rgb
+        return self._apply_manual_crop(rgb)
+
+    def _apply_manual_crop(self, rgb: np.ndarray) -> np.ndarray:
+        # No-op unless manual_crop_bbox was set at construction. Keeps the
+        # composed predictor's preprocessing aligned with training (dashboard cut).
+        if self.manual_crop_bbox is None:
+            return rgb
+        h, w = rgb.shape[:2]
+        clipped = _clip_bbox_to_image(self.manual_crop_bbox, width=w, height=h)
+        if clipped is None:
+            return rgb
+        x1, y1, x2, y2 = clipped
+        return rgb[y1:y2, x1:x2]
 
 
 __all__ = [
