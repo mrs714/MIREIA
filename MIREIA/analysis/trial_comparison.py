@@ -11,6 +11,7 @@ grids so the comparison still renders.
 
 from __future__ import annotations
 
+import json
 import math
 import shutil
 import subprocess
@@ -38,16 +39,21 @@ RUN_PREFIXES: tuple[str, ...] = (
     "riskfn1",
     "riskfn2",
     "riskfn3",
+    "riskfn4",
+    "riskfn5",
 )
 
-# 3x3 grid layout used by every visual artifact. Row-major:
+# 4x3 grid layout used by every visual artifact. Row-major:
 #   row 0: baseline + risk-aware models (predicted risk)
 #   row 1: constant speed ladder, faster -> slowest
 #   row 2: ground-truth-risk-driven v functions (riskfn1..3)
+#   row 3: extra ground-truth-risk functions (riskfn4, riskfn5, blank)
+# Empty string "" is a placeholder slot that renders as a hidden axes.
 RUN_GRID_LAYOUT: tuple[tuple[str, ...], ...] = (
     ("base", "e2e", "composed"),
     ("half_slow", "slow", "very_slow"),
     ("riskfn1", "riskfn2", "riskfn3"),
+    ("riskfn4", "riskfn5", ""),
 )
 
 # Maps that belong to the test/val split per MIREIA/todo.
@@ -106,7 +112,8 @@ class RunData:
     target_speed_kmh: np.ndarray  # target_speed_kmh logged by the controller, shape (N,)
     positions_xy: np.ndarray      # (N, 2) ego x,y in CARLA coordinates
     pred_risk: dict[str, np.ndarray] = field(default_factory=dict)
-    sample_dt: float = 0.05       # fixed_delta * image_stride
+    sample_dt: float = 0.05
+    finished: bool = True       # fixed_delta * image_stride
 
 
 def load_run_data(run_path: Path, prefix: str | None = None) -> RunData | None:
@@ -166,6 +173,12 @@ def load_run_data(run_path: Path, prefix: str | None = None) -> RunData | None:
 
     sample_dt = float(Config.SIM_FIXED_DELTA_SECONDS) * float(Config.RECORD_EVERY_N_TICKS)
 
+    finished = True
+    summary_path = run_path / "summary.json"
+    if summary_path.is_file():
+        with open(summary_path) as _sf:
+            finished = bool(json.load(_sf).get("finished", True))
+
     return RunData(
         prefix=prefix,
         run_path=run_path,
@@ -177,6 +190,7 @@ def load_run_data(run_path: Path, prefix: str | None = None) -> RunData | None:
         positions_xy=positions_xy,
         pred_risk=pred_risk,
         sample_dt=sample_dt,
+        finished=finished,
     )
 
 
@@ -320,6 +334,9 @@ def render_route_grid(
     for r, row in enumerate(RUN_GRID_LAYOUT):
         for c, prefix in enumerate(row):
             ax = axes[r][c]
+            if not prefix:
+                ax.set_axis_off()
+                continue
             ax.set_aspect("equal", adjustable="box")
             ax.set_xlim(x_min - pad, x_max + pad)
             ax.set_ylim(y_min - pad, y_max + pad)
@@ -486,6 +503,9 @@ def render_comparison_video(
             for r, row in enumerate(RUN_GRID_LAYOUT):
                 for c, prefix in enumerate(row):
                     ax = axes[r][c]
+                    if not prefix:
+                        ax.set_axis_off()
+                        continue
                     ax.set_aspect("equal", adjustable="box")
                     ax.set_xlim(x_min - pad, x_max + pad)
                     ax.set_ylim(y_min - pad, y_max + pad)
@@ -604,103 +624,266 @@ def aggregate_by_prefix(rows: list[dict]) -> list[dict]:
     return out
 
 
-def render_efficiency_barplot(
-    runs_by_prefix: dict[str, "RunData | None"],
-    *,
-    title: str = "",
-    output_path: Path | None = None,
-    figsize: tuple[float, float] = (14, 5),
-) -> "plt.Figure":  # type: ignore[name-defined]
-    """Render a 3-panel bar chart comparing every prefix to the 'base' run.
+def _pct(val: float, base_val: float) -> float:
+    """Return percent change: (val - base_val) / |base_val| * 100, or NaN."""
+    import math as _m
+    if not (_m.isfinite(val) and _m.isfinite(base_val) and base_val != 0.0):
+        return float("nan")
+    return (val - base_val) / abs(base_val) * 100.0
 
-    Panels (left → right):
-      1. Δ risk/m  = prefix.risk_per_meter − base.risk_per_meter  (negative = safer)
-      2. Δ time (s) = prefix.total_sim_time_s − base.total_sim_time_s  (positive = slower)
-      3. Efficiency = Δ risk/m ÷ Δ time (s)  — risk reduction per additional second;
-         only shown for prefixes where |Δ time| > 0.1 s; otherwise set to NaN.
 
-    The 'base' bar is always zero in panels 1 & 2 and NaN in panel 3.  Bars
-    are coloured green for improvement (safer / more efficient) and red for
-    worsening.  Missing runs are skipped with a cross-hatched empty bar.
+def _extra_metrics(m: dict, w_time: float, w_risk: float, alpha: float, beta: float) -> "tuple[float, float, float]":
+    """Return (J, safety_utility_score, throughput).
+
+    J         = w_time*T + w_risk*integral_R_ds
+    Score     = exp(-alpha*T) / integral_R_ds
+    Throughput = D / (T * (1 + beta * R_mean))
     """
-    import matplotlib.pyplot as plt
+    import math as _m
+    T        = m["total_sim_time_s"]
+    D        = m["total_distance_m"]
+    risk_int = m["risk_per_meter"] * D
+    R_mean   = m["mean_risk"]
+    J        = w_time * T + w_risk * risk_int
+    su       = (_m.exp(-alpha * T) / risk_int) if risk_int > 1e-9 else float("nan")
+    tpt      = D / (T * (1.0 + beta * R_mean)) if T > 0.0 else float("nan")
+    return J, su, tpt
 
-    base_rd = runs_by_prefix.get("base")
-    base_metrics = compute_run_metrics(base_rd) if base_rd is not None else None
 
-    prefixes = [p for p in RUN_PREFIXES if p != "base"]
-    labels = ["base"] + prefixes
-    all_prefixes = labels  # order for display
-
-    def _metrics_for(p: str) -> dict | None:
-        rd = runs_by_prefix.get(p)
-        return compute_run_metrics(rd) if rd is not None else None
-
-    metrics_map = {p: _metrics_for(p) for p in all_prefixes}
-
-    delta_rpm: list[float] = []
-    delta_time: list[float] = []
-    efficiency: list[float] = []
-    available: list[bool] = []
-
-    base_rpm  = base_metrics["risk_per_meter"]  if base_metrics else float("nan")
-    base_time = base_metrics["total_sim_time_s"] if base_metrics else float("nan")
-
-    for p in all_prefixes:
-        m = metrics_map[p]
-        if m is None or base_metrics is None:
-            delta_rpm.append(float("nan"))
-            delta_time.append(float("nan"))
-            efficiency.append(float("nan"))
-            available.append(False)
-            continue
-        available.append(True)
-        d_rpm  = m["risk_per_meter"]   - base_rpm
-        d_time = m["total_sim_time_s"] - base_time
-        delta_rpm.append(d_rpm)
-        delta_time.append(d_time)
-        eff = (d_rpm / d_time) if abs(d_time) > 0.1 else float("nan")
-        efficiency.append(eff)
+def _draw_barplot_panels(
+    axes: "np.ndarray",
+    panel_data: list,
+    all_prefixes: "list[str]",
+    available: "list[bool]",
+    tick_colors: "list[str]",
+    n_counts: "list[int] | None" = None,
+) -> None:
+    """Shared 2x3 bar-drawing loop for per-trial and aggregate barplots."""
+    import math as _m
+    from matplotlib.lines import Line2D
 
     x = np.arange(len(all_prefixes))
-    fig, axes = plt.subplots(1, 3, figsize=figsize)
-    fig.patch.set_facecolor("white")
-    fig.suptitle(title or "Efficiency vs. base run", fontsize=13)
-
-    panel_data = [
-        (axes[0], delta_rpm,  "Δ risk/m (vs. base)", "Δ risk/metre"),
-        (axes[1], delta_time, "Δ time / s (vs. base)", "Δ seconds"),
-        (axes[2], efficiency, "Δ risk/m  ÷  Δ time (s)", "risk/m per extra second"),
-    ]
-
-    for panel_idx, (ax, values, panel_title, ylabel) in enumerate(panel_data):
+    for idx, (values, panel_title, ylabel, lower_better) in enumerate(panel_data):
+        ax = axes[idx // 3, idx % 3]
         ax.axhline(0, color="#666666", linewidth=0.8, linestyle="--")
-        for i, (v, lbl, avail) in enumerate(zip(values, all_prefixes, available)):
-            if not avail or not np.isfinite(v):
-                ax.bar(i, 0, color="none", edgecolor="#888888",
-                       linewidth=1.2, hatch="//", label=lbl if i == 0 else "")
+        for i, (v, avail) in enumerate(zip(values, available)):
+            if not avail or not _m.isfinite(v):
+                ax.bar(i, 0, color="none", edgecolor="#888888", linewidth=1.2, hatch="//")
                 continue
-            # Panel 1 (Δ time): positive = more time = bad → red for positive.
-            # Panels 0 & 2 (Δ risk/m, efficiency): negative = better → green for negative.
-            if panel_idx == 1:
-                color = "#d9534f" if v > 0 else "#5cb85c"
-            else:
-                color = "#5cb85c" if v <= 0 else "#d9534f"
+            color = ("#5cb85c" if v <= 0 else "#d9534f") if lower_better else ("#5cb85c" if v >= 0 else "#d9534f")
             ax.bar(i, v, color=color, alpha=0.85, edgecolor="white", linewidth=0.5)
+            if n_counts is not None:
+                offset = abs(v) * 0.04 + 0.3
+                ax.text(i, v + (offset if v >= 0 else -offset), f"n={n_counts[i]}",
+                        ha="center", va="bottom" if v >= 0 else "top", fontsize=7, color="#444444")
         ax.set_xticks(x)
-        ax.set_xticklabels(all_prefixes, rotation=30, ha="right", fontsize=9)
-        ax.set_title(panel_title, fontsize=11)
+        lbl_objs = ax.set_xticklabels(all_prefixes, rotation=30, ha="right", fontsize=9)
+        for lbl_obj, col in zip(lbl_objs, tick_colors):
+            lbl_obj.set_color(col)
+        ax.set_title(panel_title, fontsize=10)
         ax.set_ylabel(ylabel, fontsize=9)
         ax.tick_params(axis="y", labelsize=8)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
+    legend_handles = [
+        Line2D([0], [0], marker="s", color="w", markerfacecolor="#2ca02c", markersize=9, label="finished"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor="#d62728", markersize=9, label="did not finish"),
+    ]
+    axes[1, 2].legend(handles=legend_handles, loc="upper right", fontsize=8, framealpha=0.7)
+
+
+def render_efficiency_barplot(
+    runs_by_prefix: "dict[str, RunData | None]",
+    *,
+    title: str = "",
+    output_path: "Path | None" = None,
+    figsize: "tuple[float, float]" = (14, 9),
+    w_time: float = 1.0,
+    w_risk: float = 1.0,
+    alpha: float = 0.01,
+    beta: float = 0.5,
+) -> "plt.Figure":  # type: ignore[name-defined]
+    """2x3 bar chart comparing every prefix to the base run.
+
+    Row 0 -- core speed/risk metrics (signed-squared %):
+      col 0: sgn*(% D risk/m)^2   col 1: sgn*(% D time)^2   col 2: efficiency ratio
+    Row 1 -- composite score metrics (signed-squared % vs. base):
+      col 0: Economic Cost J       col 1: Safety-Utility Score  col 2: Risk-Adj. Throughput
+
+    All deltas are sgn(x)*x^2 where x is the % change vs. base, so large
+    deviations are penalised non-linearly.
+    X-tick labels are green (run finished) or red (did not finish).
+    """
+    import math as _m
+    import matplotlib.pyplot as plt
+
+    base_rd      = runs_by_prefix.get("base")
+    base_metrics = compute_run_metrics(base_rd) if base_rd is not None else None
+
+    prefixes     = [p for p in RUN_PREFIXES if p != "base"]
+    all_prefixes = ["base"] + prefixes
+
+    metrics_map = {
+        p: (compute_run_metrics(runs_by_prefix[p]) if runs_by_prefix.get(p) is not None else None)
+        for p in all_prefixes
+    }
+    finished_map = {
+        p: (runs_by_prefix[p].finished if runs_by_prefix.get(p) is not None else False)
+        for p in all_prefixes
+    }
+
+    sq_rpm: "list[float]" = []
+    sq_time: "list[float]" = []
+    eff_r:   "list[float]" = []
+    sq_J:    "list[float]" = []
+    sq_su:   "list[float]" = []
+    sq_tpt:  "list[float]" = []
+    available: "list[bool]" = []
+
+    base_rpm  = base_metrics["risk_per_meter"]  if base_metrics else float("nan")
+    base_time = base_metrics["total_sim_time_s"] if base_metrics else float("nan")
+    base_J, base_su, base_tpt = (
+        _extra_metrics(base_metrics, w_time, w_risk, alpha, beta)
+        if base_metrics else (float("nan"),) * 3
+    )
+
+    for p in all_prefixes:
+        m = metrics_map[p]
+        if m is None or base_metrics is None:
+            for lst in (sq_rpm, sq_time, eff_r, sq_J, sq_su, sq_tpt):
+                lst.append(float("nan"))
+            available.append(False)
+            continue
+        available.append(True)
+
+        # Row 0 -- speed/risk (plain % vs. base)
+        p_rpm  = _pct(m["risk_per_meter"],   base_rpm)
+        p_time = _pct(m["total_sim_time_s"], base_time)
+        sq_rpm.append(p_rpm)
+        sq_time.append(p_time)
+        eff_r.append((p_rpm / p_time) if (_m.isfinite(p_time) and abs(p_time) > 0.1) else float("nan"))
+
+        # Row 1 -- composite scores (plain % vs. base)
+        J, su, tpt = _extra_metrics(m, w_time, w_risk, alpha, beta)
+        sq_J.append(_pct(J, base_J))
+        sq_su.append(_pct(su, base_su))
+        sq_tpt.append(_pct(tpt, base_tpt))
+
+    tick_colors = ["#2ca02c" if finished_map.get(p, True) else "#d62728" for p in all_prefixes]
+
+    panel_data = [
+        # (values, title, ylabel, lower_better)
+        (sq_rpm,  "% Δ risk/m  (vs. base)",                                   "%",     True),
+        (sq_time, "% Δ time  (vs. base)",                                     "%",     True),
+        (eff_r,   "Efficiency  =  (% Δ risk/m) ÷ (% Δ time)",   "ratio", True),
+        (sq_J,    f"% Δ J  [Economic Cost: w_t={w_time}, w_r={w_risk}]",      "%",     True),
+        (sq_su,   f"% Δ Score  [Safety-Utility: α={alpha}]",           "%",     False),
+        (sq_tpt,  f"% Δ Throughput  [Risk-Adjusted: β={beta}]",        "%",     False),
+    ]
+
+    fig, axes = plt.subplots(2, 3, figsize=figsize)
+    fig.patch.set_facecolor("white")
+    fig.suptitle(title or "Efficiency vs. base run", fontsize=13)
+    _draw_barplot_panels(axes, panel_data, all_prefixes, available, tick_colors)
     fig.tight_layout()
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_path, dpi=120, facecolor="white")
     return fig
 
+
+def render_aggregate_efficiency_barplot(
+    runs_by_trial: "dict[str, dict[str, RunData | None]]",
+    *,
+    title: str = "",
+    output_path: "Path | None" = None,
+    figsize: "tuple[float, float]" = (14, 9),
+    w_time: float = 1.0,
+    w_risk: float = 1.0,
+    alpha: float = 0.01,
+    beta: float = 0.5,
+) -> "plt.Figure":  # type: ignore[name-defined]
+    """Like render_efficiency_barplot but averaged across all trials.
+
+    All six signed-squared % metrics are computed per trial vs. that trial's
+    own base, then averaged.  Bars are annotated with the trial count.
+    Tick labels are green if the prefix finished in every trial, red if any failed.
+    """
+    import math as _m
+    import matplotlib.pyplot as plt
+
+    prefixes     = [p for p in RUN_PREFIXES if p != "base"]
+    all_prefixes = ["base"] + prefixes
+
+    accum: "dict[str, dict[str, list[float]]]" = {
+        p: {"rpm": [], "time": [], "eff": [], "J": [], "su": [], "tpt": []}
+        for p in all_prefixes
+    }
+    finished_all: "dict[str, list[bool]]" = {p: [] for p in all_prefixes}
+
+    for runs_by_prefix in runs_by_trial.values():
+        base_rd = runs_by_prefix.get("base")
+        if base_rd is None:
+            continue
+        base_m    = compute_run_metrics(base_rd)
+        base_rpm  = base_m["risk_per_meter"]
+        base_time = base_m["total_sim_time_s"]
+        base_J, base_su, base_tpt = _extra_metrics(base_m, w_time, w_risk, alpha, beta)
+
+        for p in all_prefixes:
+            rd = runs_by_prefix.get(p)
+            if rd is None:
+                continue
+            m = compute_run_metrics(rd)
+
+            p_rpm  = _pct(m["risk_per_meter"],   base_rpm)
+            p_time = _pct(m["total_sim_time_s"], base_time)
+            eff    = (p_rpm / p_time) if (_m.isfinite(p_time) and abs(p_time) > 0.1) else float("nan")
+
+            J, su, tpt = _extra_metrics(m, w_time, w_risk, alpha, beta)
+            a = accum[p]
+            a["rpm"].append(p_rpm);  a["time"].append(p_time); a["eff"].append(eff)
+            a["J"].append(_pct(J, base_J))
+            a["su"].append(_pct(su, base_su))
+            a["tpt"].append(_pct(tpt, base_tpt))
+            finished_all[p].append(rd.finished)
+
+    def _mean(vals: "list[float]") -> float:
+        finite = [v for v in vals if _m.isfinite(v)]
+        return float(np.mean(finite)) if finite else float("nan")
+
+    mean_rpm  = [_mean(accum[p]["rpm"])  for p in all_prefixes]
+    mean_time = [_mean(accum[p]["time"]) for p in all_prefixes]
+    mean_eff  = [_mean(accum[p]["eff"])  for p in all_prefixes]
+    mean_J    = [_mean(accum[p]["J"])    for p in all_prefixes]
+    mean_su   = [_mean(accum[p]["su"])   for p in all_prefixes]
+    mean_tpt  = [_mean(accum[p]["tpt"])  for p in all_prefixes]
+    n_runs    = [len(accum[p]["rpm"])    for p in all_prefixes]
+    all_fin   = [all(finished_all[p]) if finished_all[p] else False for p in all_prefixes]
+    available = [n > 0 for n in n_runs]
+
+    tick_colors = ["#2ca02c" if af else "#d62728" for af in all_fin]
+
+    panel_data = [
+        (mean_rpm,  "% Δ risk/m  (mean)",                                          "%",     True),
+        (mean_time, "% Δ time  (mean)",                                            "%",     True),
+        (mean_eff,  "Efficiency  =  (% Δ risk/m) ÷ (% Δ time)  (mean)", "ratio", True),
+        (mean_J,    f"% Δ J  [Economic Cost: w_t={w_time}, w_r={w_risk}]",         "%",     True),
+        (mean_su,   f"% Δ Score  [Safety-Utility: α={alpha}]",              "%",     False),
+        (mean_tpt,  f"% Δ Throughput  [Risk-Adjusted: β={beta}]",           "%",     False),
+    ]
+
+    n_trials = len(runs_by_trial)
+    fig, axes = plt.subplots(2, 3, figsize=figsize)
+    fig.patch.set_facecolor("white")
+    fig.suptitle(title or f"Mean efficiency vs. base  (n={n_trials} trials)", fontsize=13)
+    _draw_barplot_panels(axes, panel_data, all_prefixes, available, tick_colors, n_counts=n_runs)
+    fig.tight_layout()
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=120, facecolor="white")
+    return fig
 
 __all__ = [
     "RUN_PREFIXES",
@@ -714,6 +897,7 @@ __all__ = [
     "find_latest_run_by_prefix",
     "is_test_or_val_trial",
     "load_run_data",
+    "render_aggregate_efficiency_barplot",
     "render_comparison_video",
     "render_efficiency_barplot",
     "render_route_grid",
