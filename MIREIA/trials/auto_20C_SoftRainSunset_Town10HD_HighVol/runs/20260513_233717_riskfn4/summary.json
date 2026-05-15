@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_20C_SoftRainSunset_Town10HD_HighVol",
+  "subtrial_name": "riskfn4",
+  "run_id": "20260513_233717_riskfn4",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_20C_SoftRainSunset_Town10HD_HighVol\\runs\\20260513_233717_riskfn4",
+  "num_frames": 604,
+  "duration_s": 114.16641879081726,
+  "traveled_m": 720.7457960617926,
+  "risk_auc": 648.6467368385642,
+  "risk_distance_integral": 3166.68222947294,
+  "risk_per_meter": 4.393618730453818,
+  "predicted_risk_auc": null,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town10HD",
+    "weather": "SoftRainSunset",
+    "route_start": [
+      -50.53829574584961,
+      133.4004669189453,
+      0.0
+    ],
+    "route_end": [
+      109.28726196289062,
+      84.89241790771484,
+      0.0
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_18D_MidRainyNoon_Town10HD_LowVol",
+  "subtrial_name": "riskfn2",
+  "run_id": "20260513_205538_riskfn2",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_18D_MidRainyNoon_Town10HD_LowVol\\runs\\20260513_205538_riskfn2",
+  "num_frames": 386,
+  "duration_s": 35.843870878219604,
+  "traveled_m": 311.6610670417808,
+  "risk_auc": 411.1869609272808,
+  "risk_distance_integral": 2139.9423155609375,
+  "risk_per_meter": 6.866248440566559,
+  "predicted_risk_auc": null,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town10HD",
+    "weather": "MidRainyNoon",
+    "route_start": [
+      -92.97467041015625,
+      113.33920288085938,
+      0.0
+    ],
+    "route_end": [
+      -26.8576602935791,
+      66.2142105102539,
+      0.0
+    ]
+  }
+}

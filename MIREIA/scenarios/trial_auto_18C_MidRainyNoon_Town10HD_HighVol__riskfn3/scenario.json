@@ -1,0 +1,25 @@
+{
+    "name": "trial_auto_18C_MidRainyNoon_Town10HD_HighVol__riskfn3",
+    "description": "Auto-generated trial from scenario 18C_MidRainyNoon_Town10HD_HighVol.",
+    "map_name": "Town10HD",
+    "weather": "MidRainyNoon",
+    "ego_blueprint": "vehicle.lincoln.mkz_2020",
+    "ego_camera_position": [
+        0.8,
+        0.0,
+        1.3
+    ],
+    "ego_spawn_index": null,
+    "ego_spawn_point": [
+        -28.517200469970703,
+        130.03573608398438,
+        0.0
+    ],
+    "ego_autopilot": false,
+    "n_vehicles": 80,
+    "n_pedestrians": 50,
+    "pct_running": 15.0,
+    "pct_crossing": 10.0,
+    "safe_vehicles": false,
+    "seed": 42
+}

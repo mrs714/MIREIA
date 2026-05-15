@@ -1,0 +1,43 @@
+{
+  "trial_name": "auto_21B_CloudyNoon_Town05_LowVol_NoFog_Night",
+  "subtrial_name": "riskfn3",
+  "run_id": "20260513_222932_riskfn3",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_21B_CloudyNoon_Town05_LowVol_NoFog_Night\\runs\\20260513_222932_riskfn3",
+  "num_frames": 518,
+  "duration_s": 85.67923259735107,
+  "traveled_m": 260.3208289456915,
+  "risk_auc": 272.64770862361934,
+  "risk_distance_integral": 861.0159735000893,
+  "risk_per_meter": 3.3075185607975905,
+  "predicted_risk_auc": null,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town05",
+    "weather": {
+      "cloudiness": 60.0,
+      "precipitation": 0.0,
+      "precipitation_deposits": 0.0,
+      "wind_intensity": 10.0,
+      "sun_azimuth_angle": -1.0,
+      "sun_altitude_angle": -90.0,
+      "fog_density": 3.0,
+      "fog_distance": 0.75,
+      "wetness": 0.0,
+      "fog_falloff": 0.10000000149011612,
+      "scattering_intensity": 1.0,
+      "mie_scattering_scale": 0.029999999329447746,
+      "rayleigh_scattering_scale": 0.03310000151395798,
+      "dust_storm": 0.0
+    },
+    "route_start": [
+      -123.68846130371094,
+      91.42517852783203,
+      0.0
+    ],
+    "route_end": [
+      -31.24256706237793,
+      -87.94085693359375,
+      0.0
+    ]
+  }
+}

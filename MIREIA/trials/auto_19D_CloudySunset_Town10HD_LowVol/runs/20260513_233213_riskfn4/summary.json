@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_19D_CloudySunset_Town10HD_LowVol",
+  "subtrial_name": "riskfn4",
+  "run_id": "20260513_233213_riskfn4",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_19D_CloudySunset_Town10HD_LowVol\\runs\\20260513_233213_riskfn4",
+  "num_frames": 291,
+  "duration_s": 33.044591188430786,
+  "traveled_m": 323.75660126042425,
+  "risk_auc": 191.8221211158846,
+  "risk_distance_integral": 950.3888348500108,
+  "risk_per_meter": 2.935504113738624,
+  "predicted_risk_auc": null,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town10HD",
+    "weather": "CloudySunset",
+    "route_start": [
+      -59.809104919433594,
+      -57.43671798706055,
+      0.0
+    ],
+    "route_end": [
+      89.2880630493164,
+      124.11347198486328,
+      0.0
+    ]
+  }
+}

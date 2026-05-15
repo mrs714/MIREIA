@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_18A_MidRainyNoon_Town05_HighVol",
+  "subtrial_name": "riskfn1",
+  "run_id": "20260512_224608_riskfn1",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_18A_MidRainyNoon_Town05_HighVol\\runs\\20260512_224608_riskfn1",
+  "num_frames": 1110,
+  "duration_s": 231.2649631500244,
+  "traveled_m": 949.7057471700637,
+  "risk_auc": 1126.5575497780455,
+  "risk_distance_integral": 5308.615530163472,
+  "risk_per_meter": 5.589747714997094,
+  "predicted_risk_auc": null,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town05",
+    "weather": "MidRainyNoon",
+    "route_start": [
+      -85.6649398803711,
+      191.10244750976562,
+      0.0
+    ],
+    "route_end": [
+      -61.75399398803711,
+      -0.8003711104393005,
+      0.0
+    ]
+  }
+}

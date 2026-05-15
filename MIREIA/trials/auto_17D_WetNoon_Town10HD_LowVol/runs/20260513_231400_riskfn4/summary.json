@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_17D_WetNoon_Town10HD_LowVol",
+  "subtrial_name": "riskfn4",
+  "run_id": "20260513_231400_riskfn4",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_17D_WetNoon_Town10HD_LowVol\\runs\\20260513_231400_riskfn4",
+  "num_frames": 648,
+  "duration_s": 79.06223106384277,
+  "traveled_m": 422.3897395163484,
+  "risk_auc": 368.99161083831603,
+  "risk_distance_integral": 1416.5885912692156,
+  "risk_per_meter": 3.3537476381203315,
+  "predicted_risk_auc": null,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town10HD",
+    "weather": "WetNoon",
+    "route_start": [
+      -101.89923858642578,
+      27.02199935913086,
+      0.0
+    ],
+    "route_end": [
+      -14.684396743774414,
+      13.143177032470703,
+      0.0
+    ]
+  }
+}
