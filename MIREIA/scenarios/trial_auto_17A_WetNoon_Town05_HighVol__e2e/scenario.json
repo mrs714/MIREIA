@@ -1,0 +1,25 @@
+{
+    "name": "trial_auto_17A_WetNoon_Town05_HighVol__e2e",
+    "description": "Auto-generated trial from scenario 17A_WetNoon_Town05_HighVol.",
+    "map_name": "Town05",
+    "weather": "WetNoon",
+    "ego_blueprint": "vehicle.lincoln.mkz_2020",
+    "ego_camera_position": [
+        0.8,
+        0.0,
+        1.3
+    ],
+    "ego_spawn_index": null,
+    "ego_spawn_point": [
+        -63.73694610595703,
+        6.2044758796691895,
+        0.0
+    ],
+    "ego_autopilot": false,
+    "n_vehicles": 80,
+    "n_pedestrians": 50,
+    "pct_running": 15.0,
+    "pct_crossing": 10.0,
+    "safe_vehicles": false,
+    "seed": 42
+}

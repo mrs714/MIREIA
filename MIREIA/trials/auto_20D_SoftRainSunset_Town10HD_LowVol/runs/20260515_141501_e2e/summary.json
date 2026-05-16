@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_20D_SoftRainSunset_Town10HD_LowVol",
+  "subtrial_name": "e2e",
+  "run_id": "20260515_141501_e2e",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_20D_SoftRainSunset_Town10HD_LowVol\\runs\\20260515_141501_e2e",
+  "num_frames": 828,
+  "duration_s": 245.03526949882507,
+  "traveled_m": 669.6757879766819,
+  "risk_auc": 635.1345840014571,
+  "risk_distance_integral": 2220.077495667704,
+  "risk_per_meter": 3.3151526985547926,
+  "predicted_risk_auc": 1586.527872145176,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town10HD",
+    "weather": "SoftRainSunset",
+    "route_start": [
+      88.77238464355469,
+      -52.73203659057617,
+      0.0
+    ],
+    "route_end": [
+      105.82524871826172,
+      25.831296920776367,
+      0.0
+    ]
+  }
+}

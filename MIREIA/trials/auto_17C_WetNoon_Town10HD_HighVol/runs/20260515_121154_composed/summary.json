@@ -1,0 +1,28 @@
+{
+  "trial_name": "auto_17C_WetNoon_Town10HD_HighVol",
+  "subtrial_name": "composed",
+  "run_id": "20260515_121154_composed",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_17C_WetNoon_Town10HD_HighVol\\runs\\20260515_121154_composed",
+  "num_frames": 251,
+  "duration_s": 228.1368248462677,
+  "traveled_m": 160.70235500526326,
+  "risk_auc": 159.28387510264162,
+  "risk_distance_integral": 608.6206134534846,
+  "risk_per_meter": 3.7872538547026973,
+  "predicted_risk_auc": 196.87036952376366,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town10HD",
+    "weather": "WetNoon",
+    "route_start": [
+      -107.56678771972656,
+      78.57760620117188,
+      0.0
+    ],
+    "route_end": [
+      -59.809104919433594,
+      -57.43671798706055,
+      0.0
+    ]
+  }
+}

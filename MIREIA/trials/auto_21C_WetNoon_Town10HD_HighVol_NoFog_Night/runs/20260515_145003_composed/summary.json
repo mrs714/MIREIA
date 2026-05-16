@@ -1,0 +1,43 @@
+{
+  "trial_name": "auto_21C_WetNoon_Town10HD_HighVol_NoFog_Night",
+  "subtrial_name": "composed",
+  "run_id": "20260515_145003_composed",
+  "run_path": "t:\\TFG\\MIREIA\\trials\\auto_21C_WetNoon_Town10HD_HighVol_NoFog_Night\\runs\\20260515_145003_composed",
+  "num_frames": 178,
+  "duration_s": 87.49262166023254,
+  "traveled_m": 184.89535232746562,
+  "risk_auc": 174.16598709147732,
+  "risk_distance_integral": 758.5423907480872,
+  "risk_per_meter": 4.10254980019532,
+  "predicted_risk_auc": 258.29227712750435,
+  "finished": true,
+  "metadata": {
+    "map_name": "Town10HD",
+    "weather": {
+      "cloudiness": 5.0,
+      "precipitation": 0.0,
+      "precipitation_deposits": 50.0,
+      "wind_intensity": 10.0,
+      "sun_azimuth_angle": -1.0,
+      "sun_altitude_angle": -90.0,
+      "fog_density": 3.0,
+      "fog_distance": 0.75,
+      "wetness": 0.0,
+      "fog_falloff": 0.10000000149011612,
+      "scattering_intensity": 1.0,
+      "mie_scattering_scale": 0.029999999329447746,
+      "rayleigh_scattering_scale": 0.03310000151395798,
+      "dust_storm": 0.0
+    },
+    "route_start": [
+      -99.51937103271484,
+      9.25624942779541,
+      0.0
+    ],
+    "route_end": [
+      102.62886810302734,
+      -28.423072814941406,
+      0.0
+    ]
+  }
+}
