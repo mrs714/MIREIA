@@ -56,8 +56,12 @@ RUN_GRID_LAYOUT: tuple[tuple[str, ...], ...] = (
     ("riskfn4", "riskfn5", ""),
 )
 
-# Maps that belong to the test/val split per MIREIA/todo.
-TEST_VAL_MAP_NAMES: tuple[str, ...] = ("Town04", "Town10HD")
+# Maps that belong to the val and test splits.
+# Validation = Town05 (held-out from training but same family as train towns).
+# Test       = Town10HD (out-of-distribution map).
+VAL_MAP_NAMES:  tuple[str, ...] = ("Town05",)
+TEST_MAP_NAMES: tuple[str, ...] = ("Town10HD",)
+TEST_VAL_MAP_NAMES: tuple[str, ...] = VAL_MAP_NAMES + TEST_MAP_NAMES
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +69,7 @@ TEST_VAL_MAP_NAMES: tuple[str, ...] = ("Town04", "Town10HD")
 # ---------------------------------------------------------------------------
 
 def is_test_or_val_trial(trial_name: str, *, map_name: str | None = None) -> bool:
-    """Heuristic: trial is in the test+val set if its map is Town04 or Town10HD.
+    """Heuristic: trial is in the test+val set if its map is in TEST_VAL_MAP_NAMES.
 
     Either pass the explicit `map_name` (from the trial JSON) or match the
     `auto_*` trial-name convention which embeds the map.
@@ -73,6 +77,16 @@ def is_test_or_val_trial(trial_name: str, *, map_name: str | None = None) -> boo
     if map_name is not None:
         return map_name in TEST_VAL_MAP_NAMES
     return any(name in trial_name for name in TEST_VAL_MAP_NAMES)
+
+
+def classify_trial_split(trial_name: str, *, map_name: str | None = None) -> str | None:
+    """Return 'val', 'test', or None depending on the trial's map."""
+    name_or_map = map_name if map_name is not None else trial_name
+    if any(m in name_or_map for m in VAL_MAP_NAMES):
+        return "val"
+    if any(m in name_or_map for m in TEST_MAP_NAMES):
+        return "test"
+    return None
 
 
 def find_latest_run_by_prefix(trial_dir: Path, prefix: str) -> Path | None:
@@ -666,16 +680,27 @@ def _draw_barplot_panels(
     for idx, (values, panel_title, ylabel, lower_better) in enumerate(panel_data):
         ax = axes[idx // 3, idx % 3]
         ax.axhline(0, color="#666666", linewidth=0.8, linestyle="--")
+        # First pass: draw bars only (so axes auto-scale to the bar data).
         for i, (v, avail) in enumerate(zip(values, available)):
             if not avail or not _m.isfinite(v):
                 ax.bar(i, 0, color="none", edgecolor="#888888", linewidth=1.2, hatch="//")
                 continue
             color = ("#5cb85c" if v <= 0 else "#d9534f") if lower_better else ("#5cb85c" if v >= 0 else "#d9534f")
             ax.bar(i, v, color=color, alpha=0.85, edgecolor="white", linewidth=0.5)
-            if n_counts is not None:
-                offset = abs(v) * 0.04 + 0.3
+        # Second pass: place n=… annotations using an offset proportional to the
+        # panel's actual y-range (so tiny-range panels like the ratio one don't
+        # get blown out by a constant data-unit offset). Clip to axes so any
+        # leftover overflow doesn't trick tight_layout into reserving extra room.
+        if n_counts is not None:
+            y_lo, y_hi = ax.get_ylim()
+            span = max(y_hi - y_lo, 1e-9)
+            offset = 0.02 * span
+            for i, (v, avail) in enumerate(zip(values, available)):
+                if not avail or not _m.isfinite(v):
+                    continue
                 ax.text(i, v + (offset if v >= 0 else -offset), f"n={n_counts[i]}",
-                        ha="center", va="bottom" if v >= 0 else "top", fontsize=7, color="#444444")
+                        ha="center", va="bottom" if v >= 0 else "top",
+                        fontsize=7, color="#444444", clip_on=True)
         ax.set_xticks(x)
         lbl_objs = ax.set_xticklabels(all_prefixes, rotation=30, ha="right", fontsize=9)
         for lbl_obj, col in zip(lbl_objs, tick_colors):
@@ -889,8 +914,11 @@ __all__ = [
     "RUN_PREFIXES",
     "RUN_GRID_LAYOUT",
     "TEST_VAL_MAP_NAMES",
+    "VAL_MAP_NAMES",
+    "TEST_MAP_NAMES",
     "RunData",
     "aggregate_by_prefix",
+    "classify_trial_split",
     "compute_run_metrics",
     "compute_trial_metrics_table",
     "discover_trial_runs",
