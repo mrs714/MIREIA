@@ -6,21 +6,7 @@
 
 # 3. Allow specific files
 !README.md
-!test.ipynb
-!scenario_demo.ipynb
-!train_demo.ipynb
-!trial_demo.ipynb
-!model_demo.ipynb
-!queued_inference_demo.ipynb
-!feature_analysis.ipynb
-!composed_inference_analysis.ipynb
-!trial_builder.ipynb
-!trial_batch_runner.ipynb
-!trial_slow_batch_runner.ipynb
-!trial_models_batch_runner.ipynb
-!trial_function_batch_runner.ipynb
-!trial_comparison.ipynb
-!trial_analysis.ipynb
+!NB_*.ipynb
 
 # 4. Allow a specific folder
 # Note: You must allow the folder itself AND everything inside it
