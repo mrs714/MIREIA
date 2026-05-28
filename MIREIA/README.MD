@@ -19,7 +19,7 @@ CARLA Simulator
       ▼
  SensorManager ──► RGB frames → dataset/images/
 
-──────── Offline: Feature Extraction (train_demo.ipynb Step 9) ────────
+──────── Offline: Feature Extraction (NB_04_training_pipeline.ipynb Step 9) ────────
 
  RGB frame pairs
       │
@@ -84,13 +84,13 @@ Each scenario slot has 4 variants (letters A–D) covering high/low traffic and 
 
 ## Notebooks
 
-| Notebook | Purpose |
-|----------|---------|
-| `model_demo.ipynb` | Individual model inference demo (YOLO, Depth, SAM2, Road Seg, Climate, E2E) |
-| `feature_analysis.ipynb` | PCA, clustering, and diagnostics of the 32D feature space |
-| `scenario_demo.ipynb` | Generate, save, and run CARLA scenarios; capture datasets |
-| `train_demo.ipynb` | Full training pipeline (Climate → E2E → Road Seg → Speed Fusion → BDU-GRU search) |
-| `queued_inference_demo.ipynb` | Offline inference comparison: E2E vs Composed BDU-GRU |
-| `composed_inference_analysis.ipynb` | Benchmark composed model latency, FPS, and call counts |
-| `trial_builder.ipynb` | Create and save `TrialDefinition` objects — interactive route picker, no simulation run |
-| `trial_demo.ipynb` | Live CARLA trial execution with streaming predictor and route comparison |
+The 15 workflow notebooks live at the repository root and are prefixed `NB_NN_`. See the [root README](../README.md) for the full ordered list and per-notebook purpose. In summary:
+
+| Stage | Notebooks |
+|-------|-----------|
+| Data | `NB_01_scenario_demo` |
+| Risk-field validation | `NB_02_risk_field_validation` |
+| Perception & training | `NB_03_perception_modules_demo`, `NB_04_training_pipeline` |
+| Analysis & inference | `NB_05_feature_analysis`, `NB_06_queued_inference_demo`, `NB_07_composed_inference_analysis` |
+| Closed-loop trials | `NB_08_trial_builder`, `NB_09_trial_demo`, `NB_10`–`NB_13_*_batch_runner` |
+| Aggregate analysis | `NB_14_trial_analysis`, `NB_15_trial_comparison` |

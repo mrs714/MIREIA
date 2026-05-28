@@ -29,7 +29,7 @@ Dataset recording, labeling, loading, and split management.
 }
 ```
 
-### `dataset_labeled.jsonl` (labeled — produced by Step 9 of `train_demo.ipynb`)
+### `dataset_labeled.jsonl` (labeled — produced by Step 9 of `NB_04_training_pipeline.ipynb`)
 
 Extends each record with:
 
@@ -61,7 +61,7 @@ create_dataloaders(partition_mode="frame", frame_train_ratio=0.7)
 
 ## Dashboard Masking
 
-Step 9 of `train_demo.ipynb` applies a per-scenario letter mask before feature extraction to black out the dashboard area (which varies by camera mount/letter slot):
+Step 9 of `NB_04_training_pipeline.ipynb` applies a per-scenario letter mask before feature extraction to black out the dashboard area (which varies by camera mount/letter slot):
 
 | Letter | Mask region (x1, y1, x2, y2) |
 |--------|-------------------------------|

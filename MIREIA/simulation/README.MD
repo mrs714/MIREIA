@@ -13,7 +13,7 @@ CARLA simulator integration — world management, scenario loading, traffic, sen
 | `traffic_handler.py` | `TrafficHandler` | Deterministic spawner for ego, traffic vehicles, and pedestrians using seeded RNG; Traffic Manager sync |
 | `simple_route_controller.py` | `SimpleRouteController` | Route following via CARLA agents (GlobalRoutePlanner / LocalPlanner / BehaviorAgent) with speed modifier hooks |
 | `trials.py` | `TrialDefinition` / `TrialRunner` | Bundles map + weather + route + ego config into a reproducible trial; runs multiple ego sub-trials on a shared world |
-| `routes.py` | — | Interactive waypoint selection tool (click → snap to nearest waypoint → output CARLA coordinates). Run as a subprocess from `trial_builder.ipynb`. |
+| `routes.py` | — | Interactive waypoint selection tool (click → snap to nearest waypoint → output CARLA coordinates). Run as a subprocess from `NB_08_trial_builder.ipynb`. |
 
 ## Key Concepts
 

@@ -33,7 +33,7 @@ Trained checkpoints and auxiliary weights used by the MIREIA perception pipeline
 
 ## Training Split Controls
 
-Used in `train_demo.ipynb` and `train_bdu_gru_model` / `train_e2e_model`.
+Used in `NB_04_training_pipeline.ipynb` and `train_bdu_gru_model` / `train_e2e_model`.
 
 ### `partition_mode`
 
@@ -67,4 +67,4 @@ train_bdu_gru_model(partition_mode="frame", frame_train_ratio=0.7)
 
 The BDU-GRU models expect `dataset_labeled.jsonl` (with `feature_vector_32` keys) in each scenario folder.
 The E2E models expect `dataset.jsonl` (with `rgb_image_path` keys) in each scenario folder.
-Run `train_demo.ipynb` → Step 9 to generate `dataset_labeled.jsonl` from raw `dataset.jsonl`.
+Run `NB_04_training_pipeline.ipynb` → Step 9 to generate `dataset_labeled.jsonl` from raw `dataset.jsonl`.
