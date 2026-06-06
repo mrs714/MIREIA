@@ -6,6 +6,7 @@
 
 # 3. Allow specific files
 !README.md
+!LICENSE
 !NB_*.ipynb
 
 # 4. Allow a specific folder
