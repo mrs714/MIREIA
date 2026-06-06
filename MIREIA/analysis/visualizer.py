@@ -1138,14 +1138,30 @@ class DummyRiskVisualizer:
         self.scenario_name = 'Following'
         self.load_scenario('Following')
 
+        # Bridge shim — the current RiskOracle API takes a SimulationBridge.
+        # We expose the dummy ego / env / obstacles through the same getters so
+        # the oracle can be reused unchanged.
+        dummy_vis = self
+        class _DummyBridge:
+            def get_ego_kinematics(self):       return dummy_vis.ego
+            def get_dynamic_obstacles(self):    return dummy_vis.obstacles
+            def get_pedestrians(self):          return []
+            def get_environment_state(self):    return dummy_vis.env
+            def get_static_obstacles(self):     return []
+        self._bridge = _DummyBridge()
+
+        # Pre-build a square Grid covering the plot region and a zero static
+        # baked layer (the demo has no road/static obstacles).
+        self._grid = Grid(center_x=35.0, center_y=0.0, size=100.0, resolution=0.5)
+        self._baked_static = RiskGrid.from_grid_and_risk(self._grid, np.zeros_like(self._grid.X))
+
         # Setup Plot Style
         plt.style.use('dark_background')
         self.fig = plt.figure(figsize=(14, 8))
         self.fig.canvas.manager.set_window_title('Thesis Risk Field Visualizer')
 
         # --- Layout Definitions ---
-        self.ax_plot = self.fig.add_axes([0.25, 0.30, 0.60, 0.65]) # Main Plot
-        self.ax_cbar = self.fig.add_axes([0.87, 0.30, 0.02, 0.65]) # Color Bar (Thin strip on right)
+        self.ax_plot = self.fig.add_axes([0.25, 0.30, 0.72, 0.65]) # Main Plot
         self.norm = mcolors.Normalize(vmin=0, vmax=1.5)
         self.setup_widgets()
         self.render()
@@ -1154,22 +1170,29 @@ class DummyRiskVisualizer:
     def load_scenario(self, name):
         self.scenario_name = name
         O = self.DummyObstacle
+        # The oracle treats heading as degrees (math.radians(obj.heading)). Derive
+        # it from the velocity vector so the risk lobe always aligns with motion;
+        # fall back to 0 for stationary obstacles.
+        def yaw_deg(vx, vy):
+            return math.degrees(math.atan2(vy, vx)) if (vx or vy) else 0.0
         if name == 'Following':
-            self.obstacles = [O(40, 0, 10, 0, 0, 4.5, 1.8)]
+            vx, vy = 10, 0
+            self.obstacles = [O(40, 0, vx, vy, yaw_deg(vx, vy), 4.5, 1.8)]
         elif name == 'Cut-In':
-            self.obstacles = [O(25, 3.5, 18, -2, -0.2, 4.5, 1.8)]
+            vx, vy = 18, -2
+            self.obstacles = [O(25, 3.5, vx, vy, yaw_deg(vx, vy), 4.5, 1.8)]
         elif name == 'Oncoming':
-            self.obstacles = [O(60, 3.5, -20, 0, 3.14, 4.5, 1.8)]
+            vx, vy = -20, 0
+            self.obstacles = [O(60, 3.5, vx, vy, yaw_deg(vx, vy), 4.5, 1.8)]
         elif name == 'Traffic Jam':
             self.obstacles = [
-                O(20, 0, 0, 0, 0, 4.5, 1.8),
-                O(32, 0, 0, 0, 0, 4.5, 1.8),
-                O(44, 0, 0, 0, 0, 4.5, 1.8),
+                O(20, 0, 0, 0, 0.0, 4.5, 1.8),
+                O(32, 0, 0, 0, 0.0, 4.5, 1.8),
+                O(44, 0, 0, 0, 0.0, 4.5, 1.8),
             ]
 
     def render(self, val=None):
         self.ax_plot.clear()
-        self.ax_cbar.clear()
 
         # Update Title with Stats
         title_str = (f"SCENARIO: {self.scenario_name}  |  "
@@ -1178,13 +1201,14 @@ class DummyRiskVisualizer:
                      f"Ego Speed: {self.ego.v:.0f} m/s")
         self.ax_plot.set_title(title_str, fontsize=12, color='white', pad=10)
 
-        # 1. Generate Grid
-        x = np.linspace(-10, 80, 150) # Resolution: Long
-        y = np.linspace(-10, 10, 80)  # Resolution: Lat
-        X, Y = np.meshgrid(x, y)
-
-        # 2. Compute Risk Field
-        Z = self.oracle.calculate_risk_map(X, Y, self.ego, self.obstacles, self.env)
+        # 1. Grid + 2. Compute Risk Field — uses the pre-built square grid and
+        # bridge shim from __init__; static baked layer is all-zeros.
+        risk_grid_out = self.oracle.calculate_risk_map(
+            self._grid, self._bridge, baked_static_risk=self._baked_static
+        )
+        X, Y = self._grid.X, self._grid.Y
+        n = int(self._grid.size / self._grid.resolution) + 1
+        Z = np.array([p['risk_value'] for p in risk_grid_out.grid]).reshape(n, n)
 
         # 3. Draw Heatmap (Contourf)
         levels = np.linspace(0, 1.5, 50)
@@ -1199,13 +1223,15 @@ class DummyRiskVisualizer:
                                      linewidth=2, edgecolor='#00FF00', facecolor='#000000', label='Ego')
         self.ax_plot.add_patch(ego_rect) 
 
-        # 6. Draw Obstacles (Gray Boxes with Velocity Arrows)
+        # 6. Draw Obstacles (Gray Boxes Rotated by Heading + Velocity Arrows)
         for obj in self.obstacles:
-            obs_rect = patches.Rectangle((obj.x-obj.length/2, obj.y-obj.width/2), obj.length, obj.width, 
+            obs_rect = patches.Rectangle((-obj.length/2, -obj.width/2), obj.length, obj.width,
                                          linewidth=1, edgecolor='red', facecolor='#555555', alpha=0.9)
+            t = Affine2D().rotate_deg(obj.heading).translate(obj.x, obj.y) + self.ax_plot.transData
+            obs_rect.set_transform(t)
             self.ax_plot.add_patch(obs_rect)
             # Velocity Arrow
-            self.ax_plot.arrow(obj.x, obj.y, obj.vx*0.5, obj.vy*0.5, 
+            self.ax_plot.arrow(obj.x, obj.y, obj.vx*0.5, obj.vy*0.5,
                                head_width=0.5, head_length=0.8, fc='white', ec='white')
 
         # 7. Formatting
