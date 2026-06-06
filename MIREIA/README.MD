@@ -1,6 +1,6 @@
 # MIREIA
 
-**M**odel for **I**ntelligent **R**isk **E**valuation in **I**mperfect **A**utonomous driving — vision algorithms for real-time risk prediction in CARLA simulations.
+**M**onocular **I**nterpretable **R**isk **E**valuation for **I**ntelligent **A**utonomy — vision algorithms for real-time risk prediction in CARLA simulations.
 
 ## Architecture
 

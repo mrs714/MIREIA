@@ -1,13 +1,13 @@
 # MIREIA
 
-**M**achine-vision **I**ntelligence for **R**isk **E**valuation in **I**nteractive **A**utonomy — a monocular RGB-based Driving Risk Field (DRF) estimator and a risk-aware speed controller, built on the CARLA simulator.
+**M**onocular **I**nterpretable **R**isk **E**valuation for **I**ntelligent **A**utonomy — a monocular RGB-based Driving Risk Field (DRF) estimator and a risk-aware speed controller, built on the CARLA simulator.
 
 This repository contains the full system: the analytical risk oracle that generates the ground-truth labels, two learned risk predictors (an end-to-end ResNet-18 → BDU-GRU and a modular composed model), the closed-loop trial machinery that drives them, and the analysis tooling used to compare runs.
 
 ## Quickstart
 
-1. Install Python 3.12 and CARLA 0.9.16 (UE 4.26 build), then `pip install -r requirements.txt`.
-2. Copy `.env.example` to `.env` and set `PATH_TO_SCENARIOS`, `PATH_TO_TRIALS`, `PATH_TO_MODELS`, `CARLA_HOST`, `CARLA_PORT`.
+1. Install Python 3.12 and CARLA 0.9.16 (UE 4.26 build), then `pip install -r MIREIA/requirements.txt`.
+2. Copy `MIREIA/.env.example` to `MIREIA/.env` and set `PATH_TO_SCENARIOS`, `PATH_TO_TRIALS`, `PATH_TO_MODELS`, `CARLA_HOST`, `CARLA_PORT`.
 3. Launch CARLA, then open the notebooks below in order.
 
 ## Notebooks
@@ -45,3 +45,7 @@ Each notebook opens with a header cell stating its purpose, inputs, outputs, how
 | [`PythonAPI/`](PythonAPI/) | CARLA Python API utilities and examples. |
 
 See [`MIREIA/README.MD`](MIREIA/README.MD) for the architecture diagram, per-subpackage documentation, and the scenario / trial dataset layout.
+
+## License
+
+This project is released under the **GNU Affero General Public License v3.0** (see [`LICENSE`](LICENSE)). It is free to use, study, and modify for research and academic purposes; any distributed or network-deployed derivative must in turn be made available under the same license. It therefore cannot be folded into closed-source software. The bundled CARLA simulator and its `PythonAPI/` are covered by their own MIT license.
