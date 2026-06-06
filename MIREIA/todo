@@ -37,3 +37,19 @@ per una banda, haig de separar els mapes en train val test, train i val que s'as
 - Train: 1,2,3,5
 - Val: 4
 - Test: 10hd
+
+
+analitzar millor si el grup aquell son cotxes parats o qlq
+
+en el batching dels escenaris, s'hauria de guardar també les prediccions dels dos models 
+s'hauria de separar els runs en: base (fet amb el batching, guarda el ground truth i les dues prediccions), i el run basat en slow driving que també es pot fer en batch simplement passant v = 1/2 v (guarda només ground truth) i finalment guardar els dos runs fets amb cadascun dels models que guarden el ground truth i el seu output (només el seu, el de l'altre model no) per un total de 4 runs per trial a comparar
+
+
+
+
+
+update el mermaid i tal a la última versió un cop estigui tot
+revisar la secció 8 de la inventada basta
+
+buscar source per les emissions - fet
+em queda només revisar la secció de etica i el gantt
