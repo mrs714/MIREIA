@@ -12,7 +12,7 @@
 ![CARLA](https://img.shields.io/badge/CARLA-0.9.16-FF6B00)
 ![Status](https://img.shields.io/badge/Bachelor's%20Thesis-UPC-red)
 
-<img src="tfg/images/risk/risk_heatmap.png" width="85%" alt="Top-down Driving Risk Field rendered live on a CARLA scene"/>
+<img src="assets/risk_heatmap.png" width="85%" alt="Top-down Driving Risk Field rendered live on a CARLA scene"/>
 
 <sub>The Driving Risk Field rendered live on a CARLA scene — a continuous danger potential over the road plane, built from vehicle dynamics and scene geometry.</sub>
 
@@ -36,7 +36,7 @@ MIREIA addresses both inside CARLA, where the true scene is known and every quan
 ## How It Works
 
 <div align="center">
-<img src="tfg/images/architecture_diagram.png" width="90%" alt="MIREIA runtime architecture"/>
+<img src="assets/architecture_diagram.png" width="90%" alt="MIREIA runtime architecture"/>
 </div>
 
 The system is a three-stage pipeline:
@@ -52,7 +52,7 @@ The system is a three-stage pipeline:
 ## Results
 
 <div align="center">
-<img src="tfg/images/trials/overall_results.png" width="90%" alt="Aggregate trial metrics across all twenty closed-loop slots"/>
+<img src="assets/overall_results.png" width="90%" alt="Aggregate trial metrics across all twenty closed-loop slots"/>
 <br>
 <sub>Each variant as a percentage change against its baseline run, averaged over twenty closed-loop trial slots across two maps.</sub>
 </div>
@@ -64,7 +64,7 @@ The system is a three-stage pipeline:
 - **Learned predictors close the loop.** Even with no access to the ground-truth field, both models capture the risk spikes well enough to drive the controller past the risk-blind baselines.
 
 <div align="center">
-<img src="tfg/images/model_comparisons/19A_four_models.png" width="80%" alt="Predicted risk vs ground truth on a validation scenario"/>
+<img src="assets/19A_four_models.png" width="80%" alt="Predicted risk vs ground truth on a validation scenario"/>
 <br>
 <sub>Predicted risk (coloured) tracking the ground-truth field (black) on a held-out scenario.</sub>
 </div>
@@ -72,7 +72,7 @@ The system is a three-stage pipeline:
 ## See It Running
 
 <div align="center">
-<img src="tfg/images/trials/run_visualization.png" width="90%" alt="Composite visualisation of a single closed-loop run"/>
+<img src="assets/run_visualization.png" width="90%" alt="Composite visualisation of a single closed-loop run"/>
 <br>
 <sub>A single closed-loop run: in-cabin RGB, the risk-vs-distance trace, the top-down risk heatmap, and the route view.</sub>
 </div>

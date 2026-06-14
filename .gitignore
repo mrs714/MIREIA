@@ -15,6 +15,8 @@
 !my_scripts/**
 !MIREIA/
 !MIREIA/**
+!assets/
+!assets/**
 # The .env.example file is a template for the .env file, which should not be tracked by git, but we want to allow it to be created and modified locally
 MIREIA/.env 
 
